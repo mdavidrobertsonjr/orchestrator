@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -139,8 +138,4 @@ func requestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		logger.Info("http request", "method", r.Method, "path", r.URL.Path, "remote_addr", r.RemoteAddr)
 	})
-}
-
-func EnqueueForTest(ctx context.Context, queue jobs.Queue, jobID string) error {
-	return queue.Enqueue(ctx, jobID)
 }
