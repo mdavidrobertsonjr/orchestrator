@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workers"
 )
 
 func TestCreateJobQueuesJob(t *testing.T) {
@@ -157,10 +158,56 @@ func TestQueueStatus(t *testing.T) {
 	}
 }
 
+func TestListWorkers(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(3)
+	registry := workers.NewMemoryRegistry()
+	router := testRouterWithWorkers(store, queue, registry)
+
+	if _, err := registry.Register("worker-1"); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	if _, err := registry.MarkRunning("worker-1", "job-1"); err != nil {
+		t.Fatalf("mark worker running: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Workers []workers.Worker `json:"workers"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode workers response: %v", err)
+	}
+	if len(response.Workers) != 1 {
+		t.Fatalf("expected 1 worker, got %d", len(response.Workers))
+	}
+	if response.Workers[0].ID != "worker-1" {
+		t.Fatalf("expected worker-1, got %q", response.Workers[0].ID)
+	}
+	if response.Workers[0].Status != workers.StatusRunning {
+		t.Fatalf("expected running status, got %q", response.Workers[0].Status)
+	}
+	if response.Workers[0].CurrentJobID != "job-1" {
+		t.Fatalf("expected current job job-1, got %q", response.Workers[0].CurrentJobID)
+	}
+}
+
 func testRouter(store jobs.Store, queue jobs.Queue) http.Handler {
+	return testRouterWithWorkers(store, queue, workers.NewMemoryRegistry())
+}
+
+func testRouterWithWorkers(store jobs.Store, queue jobs.Queue, registry workers.Registry) http.Handler {
 	return NewRouter(Config{
-		Queue:  queue,
-		Store:  store,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Queue:   queue,
+		Store:   store,
+		Workers: registry,
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }

@@ -10,6 +10,7 @@ The structure is designed so the in-memory queue and store can later be replaced
 - In-memory job store with state transitions and job logs.
 - Bounded in-memory queue.
 - Embedded worker polling loop with configurable worker count.
+- In-memory worker registry with heartbeat timestamps and current job tracking.
 - Simulated executor for deterministic local development.
 - Basic retries through `max_attempts`.
 - Structured console logging with `slog`.
@@ -22,6 +23,7 @@ cmd/api/              API server entrypoint
 internal/api/         HTTP routing and JSON handlers
 internal/jobs/        Job model, queue interface, in-memory store
 internal/worker/      Worker pool and executor
+internal/workers/     Worker registry and liveness metadata
 ```
 
 ## Run
@@ -79,6 +81,12 @@ Queue status:
 
 ```bash
 curl http://localhost:8080/v1/queue
+```
+
+Worker status:
+
+```bash
+curl http://localhost:8080/v1/workers
 ```
 
 ## Roadmap

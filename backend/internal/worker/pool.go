@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workers"
 )
 
 type PoolConfig struct {
-	WorkerCount int
-	PollDelay   time.Duration
+	WorkerCount       int
+	PollDelay         time.Duration
+	HeartbeatInterval time.Duration
 }
 
 type Pool struct {
@@ -20,16 +23,20 @@ type Pool struct {
 	queue    jobs.Queue
 	store    jobs.Store
 	executor Executor
+	registry workers.Registry
 	logger   *slog.Logger
 	wg       sync.WaitGroup
 }
 
-func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Executor, logger *slog.Logger) *Pool {
+func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Executor, registry workers.Registry, logger *slog.Logger) *Pool {
 	if config.WorkerCount <= 0 {
 		config.WorkerCount = 1
 	}
 	if config.PollDelay <= 0 {
 		config.PollDelay = 250 * time.Millisecond
+	}
+	if config.HeartbeatInterval <= 0 {
+		config.HeartbeatInterval = 5 * time.Second
 	}
 
 	return &Pool{
@@ -37,6 +44,7 @@ func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Exe
 		queue:    queue,
 		store:    store,
 		executor: executor,
+		registry: registry,
 		logger:   logger,
 	}
 }
@@ -57,11 +65,31 @@ func (p *Pool) Wait() {
 }
 
 func (p *Pool) runWorker(ctx context.Context, workerID int) {
-	logger := p.logger.With("worker_id", workerID)
+	id := "worker-" + strconv.Itoa(workerID)
+	logger := p.logger.With("worker_id", id)
 	logger.Info("worker started")
-	defer logger.Info("worker stopped")
+
+	if _, err := p.registry.Register(id); err != nil {
+		logger.Error("failed to register worker", "error", err)
+		return
+	}
+
+	heartbeatCtx, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go p.heartbeatLoop(heartbeatCtx, id, logger)
+
+	defer func() {
+		if _, err := p.registry.MarkStopped(id); err != nil {
+			logger.Error("failed to mark worker stopped", "error", err)
+		}
+		logger.Info("worker stopped")
+	}()
 
 	for {
+		if _, err := p.registry.MarkIdle(id); err != nil {
+			logger.Error("failed to mark worker idle", "error", err)
+		}
+
 		jobID, err := p.queue.Dequeue(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -72,7 +100,27 @@ func (p *Pool) runWorker(ctx context.Context, workerID int) {
 			continue
 		}
 
+		if _, err := p.registry.MarkRunning(id, jobID); err != nil {
+			logger.Error("failed to mark worker running", "job_id", jobID, "error", err)
+		}
+
 		p.execute(ctx, logger, jobID)
+	}
+}
+
+func (p *Pool) heartbeatLoop(ctx context.Context, workerID string, logger *slog.Logger) {
+	ticker := time.NewTicker(p.config.HeartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := p.registry.Heartbeat(workerID); err != nil {
+				logger.Error("failed to heartbeat worker", "error", err)
+			}
+		}
 	}
 }
 

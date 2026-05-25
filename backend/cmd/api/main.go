@@ -14,6 +14,7 @@ import (
 	"orchestrator/backend/internal/api"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/worker"
+	"orchestrator/backend/internal/workers"
 )
 
 func main() {
@@ -24,21 +25,24 @@ func main() {
 	cfg := configFromEnv()
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(cfg.QueueSize)
+	registry := workers.NewMemoryRegistry()
 	executor := worker.NewSimulatedExecutor(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	pool := worker.NewPool(worker.PoolConfig{
-		WorkerCount: cfg.WorkerCount,
-		PollDelay:   250 * time.Millisecond,
-	}, queue, store, executor, logger)
+		WorkerCount:       cfg.WorkerCount,
+		PollDelay:         250 * time.Millisecond,
+		HeartbeatInterval: 5 * time.Second,
+	}, queue, store, executor, registry, logger)
 	pool.Start(ctx)
 
 	handler := api.NewRouter(api.Config{
-		Queue:  queue,
-		Store:  store,
-		Logger: logger,
+		Queue:   queue,
+		Store:   store,
+		Workers: registry,
+		Logger:  logger,
 	})
 
 	server := &http.Server{

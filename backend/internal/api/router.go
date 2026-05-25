@@ -8,25 +8,29 @@ import (
 	"strings"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workers"
 )
 
 type Config struct {
-	Queue  jobs.Queue
-	Store  jobs.Store
-	Logger *slog.Logger
+	Queue   jobs.Queue
+	Store   jobs.Store
+	Workers workers.Registry
+	Logger  *slog.Logger
 }
 
 type Server struct {
-	queue  jobs.Queue
-	store  jobs.Store
-	logger *slog.Logger
+	queue   jobs.Queue
+	store   jobs.Store
+	workers workers.Registry
+	logger  *slog.Logger
 }
 
 func NewRouter(config Config) http.Handler {
 	server := &Server{
-		queue:  config.Queue,
-		store:  config.Store,
-		logger: config.Logger,
+		queue:   config.Queue,
+		store:   config.Store,
+		workers: config.Workers,
+		logger:  config.Logger,
 	}
 
 	mux := http.NewServeMux()
@@ -35,6 +39,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
+	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
 
 	return requestLogger(server.logger, mux)
 }
@@ -120,6 +125,12 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int{
 		"queued":   s.queue.Len(),
 		"capacity": s.queue.Cap(),
+	})
+}
+
+func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workers": s.workers.List(),
 	})
 }
 
