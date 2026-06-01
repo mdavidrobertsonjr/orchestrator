@@ -143,6 +143,7 @@ func (s *Server) handleCreateNaturalJob(w http.ResponseWriter, r *http.Request) 
 		MaxAttempts: plan.MaxAttempts,
 		Payload: map[string]any{
 			"duration_ms": plan.DurationMS,
+			"report":      plan.Report,
 			"should_fail": plan.ShouldFail,
 		},
 		Metadata: metadata,

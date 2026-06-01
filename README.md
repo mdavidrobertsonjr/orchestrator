@@ -65,6 +65,8 @@ OPENAI_API_KEY=sk-... make website
 
 The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
 
+Email report requests are supported as simulated `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs, but it does not send real email until an email provider is configured in a later step.
+
 ## Checks
 
 Run backend tests and build the frontend:

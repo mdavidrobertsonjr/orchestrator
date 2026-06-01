@@ -11,6 +11,7 @@ The structure is designed so the in-memory queue and store can later be replaced
 - Optional Postgres-backed job store with automatic schema setup.
 - Bounded in-memory queue.
 - Embedded worker polling loop with configurable worker count.
+- Simulated email report job type for reporting workflows.
 - In-memory worker registry with heartbeat timestamps and current job tracking.
 - Simulated executor for deterministic local development.
 - Basic retries through `max_attempts`.
@@ -48,6 +49,8 @@ OPENAI_API_KEY=sk-... ORCH_OPENAI_MODEL=gpt-5.4-nano go run ./cmd/api
 ```
 
 If `OPENAI_API_KEY` is not set, structured job submission still works and `/v1/jobs/natural` returns `503`.
+
+English email-report requests map to `report.email`. The worker logs what would be sent, including recipients, subject, kind, and schedule, but does not deliver real email yet.
 
 Use Postgres for durable job state:
 

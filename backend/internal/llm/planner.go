@@ -25,6 +25,14 @@ type JobPlan struct {
 	MaxAttempts int               `json:"max_attempts"`
 	ShouldFail  bool              `json:"should_fail"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+	Report      ReportPlan        `json:"report"`
+}
+
+type ReportPlan struct {
+	Recipients []string `json:"recipients"`
+	Subject    string   `json:"subject"`
+	Kind       string   `json:"kind"`
+	Schedule   string   `json:"schedule"`
 }
 
 type OpenAIPlanner struct {
@@ -63,7 +71,7 @@ func (p *OpenAIPlanner) Plan(ctx context.Context, prompt string) (*JobPlan, erro
 		Input: []responseInput{
 			{
 				Role:    "system",
-				Content: "Convert the user's request into one orchestrator job. Use only these job types: video.transcode, scrape.url, python.script, ai.inference, data.pipeline. Pick sensible defaults when unspecified: duration_ms 2000, max_attempts 1, should_fail false. Keep names short and operational.",
+				Content: "Convert the user's request into one orchestrator job. Use only these job types: video.transcode, scrape.url, python.script, ai.inference, data.pipeline, report.email. Pick sensible defaults when unspecified: duration_ms 2000, max_attempts 1, should_fail false. Use report.email for email reporting requests. Keep names short and operational. If the request mentions a recurring schedule, preserve it as human-readable text in report.schedule; this system will still run the job immediately for now.",
 			},
 			{
 				Role:    "user",
@@ -78,7 +86,7 @@ func (p *OpenAIPlanner) Plan(ctx context.Context, prompt string) (*JobPlan, erro
 				Schema: map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,
-					"required":             []string{"name", "type", "duration_ms", "max_attempts", "should_fail", "metadata"},
+					"required":             []string{"name", "type", "duration_ms", "max_attempts", "should_fail", "metadata", "report"},
 					"properties": map[string]any{
 						"name": map[string]any{
 							"type":      "string",
@@ -87,7 +95,7 @@ func (p *OpenAIPlanner) Plan(ctx context.Context, prompt string) (*JobPlan, erro
 						},
 						"type": map[string]any{
 							"type": "string",
-							"enum": []string{"video.transcode", "scrape.url", "python.script", "ai.inference", "data.pipeline"},
+							"enum": []string{"video.transcode", "scrape.url", "python.script", "ai.inference", "data.pipeline", "report.email"},
 						},
 						"duration_ms": map[string]any{
 							"type":    "integer",
@@ -105,6 +113,27 @@ func (p *OpenAIPlanner) Plan(ctx context.Context, prompt string) (*JobPlan, erro
 						"metadata": map[string]any{
 							"type":                 "object",
 							"additionalProperties": map[string]any{"type": "string"},
+						},
+						"report": map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"recipients", "subject", "kind", "schedule"},
+							"properties": map[string]any{
+								"recipients": map[string]any{
+									"type":  "array",
+									"items": map[string]any{"type": "string"},
+								},
+								"subject": map[string]any{
+									"type": "string",
+								},
+								"kind": map[string]any{
+									"type": "string",
+									"enum": []string{"job_summary", "worker_status", "failure_alert", "custom"},
+								},
+								"schedule": map[string]any{
+									"type": "string",
+								},
+							},
 						},
 					},
 				},
@@ -218,5 +247,19 @@ func normalizePlan(plan *JobPlan) {
 	}
 	if plan.Metadata == nil {
 		plan.Metadata = map[string]string{}
+	}
+	plan.Report.Subject = strings.TrimSpace(plan.Report.Subject)
+	plan.Report.Kind = strings.TrimSpace(plan.Report.Kind)
+	plan.Report.Schedule = strings.TrimSpace(plan.Report.Schedule)
+	if plan.Type == "report.email" {
+		if plan.Report.Subject == "" {
+			plan.Report.Subject = "Orchestrator report"
+		}
+		if plan.Report.Kind == "" {
+			plan.Report.Kind = "job_summary"
+		}
+		if plan.Report.Schedule == "" {
+			plan.Report.Schedule = "immediate"
+		}
 	}
 }

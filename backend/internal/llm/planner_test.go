@@ -36,7 +36,7 @@ func TestOpenAIPlannerParsesStructuredResponse(t *testing.T) {
 			"output": [{
 				"content": [{
 					"type": "output_text",
-					"text": "{\"name\":\"demo transcode\",\"type\":\"video.transcode\",\"duration_ms\":5000,\"max_attempts\":2,\"should_fail\":false,\"metadata\":{\"source\":\"test\"}}"
+					"text": "{\"name\":\"demo transcode\",\"type\":\"video.transcode\",\"duration_ms\":5000,\"max_attempts\":2,\"should_fail\":false,\"metadata\":{\"source\":\"test\"},\"report\":{\"recipients\":[],\"subject\":\"\",\"kind\":\"custom\",\"schedule\":\"\"}}"
 				}]
 			}]
 		}`)),

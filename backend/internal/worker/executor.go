@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"orchestrator/backend/internal/jobs"
@@ -26,6 +28,9 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	duration := durationFromPayload(job.Payload)
 
 	logf(fmt.Sprintf("executor received %q job", job.Type))
+	if job.Type == "report.email" {
+		logEmailReport(job.Payload, logf)
+	}
 	logf(fmt.Sprintf("simulating work for %s", duration))
 
 	timer := time.NewTimer(duration)
@@ -43,6 +48,47 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 
 	logf("executor completed work")
 	return nil
+}
+
+func logEmailReport(payload map[string]any, logf func(string)) {
+	report, ok := payload["report"]
+	if !ok {
+		logf("email report payload missing; using default report")
+		return
+	}
+
+	data, err := json.Marshal(report)
+	if err != nil {
+		logf("email report payload could not be encoded")
+		return
+	}
+
+	var parsed struct {
+		Recipients []string `json:"recipients"`
+		Subject    string   `json:"subject"`
+		Kind       string   `json:"kind"`
+		Schedule   string   `json:"schedule"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		logf("email report payload could not be decoded")
+		return
+	}
+
+	if len(parsed.Recipients) == 0 {
+		logf("email report has no recipients; delivery is simulated")
+	} else {
+		logf("email report recipients: " + strings.Join(parsed.Recipients, ", "))
+	}
+	if parsed.Subject != "" {
+		logf("email report subject: " + parsed.Subject)
+	}
+	if parsed.Kind != "" {
+		logf("email report kind: " + parsed.Kind)
+	}
+	if parsed.Schedule != "" && parsed.Schedule != "immediate" {
+		logf("email report schedule noted but not yet scheduled: " + parsed.Schedule)
+	}
+	logf("email delivery provider not configured; simulated report only")
 }
 
 func durationFromPayload(payload map[string]any) time.Duration {

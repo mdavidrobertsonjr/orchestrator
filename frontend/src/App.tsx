@@ -52,7 +52,7 @@ export function App() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
-  const [naturalPrompt, setNaturalPrompt] = useState("Run a video transcode job for 5 seconds and retry twice");
+  const [naturalPrompt, setNaturalPrompt] = useState("Email me a summary of failed jobs every morning at 8am");
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -277,6 +277,7 @@ export function App() {
                     <option value="python.script">python.script</option>
                     <option value="ai.inference">ai.inference</option>
                     <option value="data.pipeline">data.pipeline</option>
+                    <option value="report.email">report.email</option>
                   </select>
                 </label>
                 <div className="field-row">

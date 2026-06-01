@@ -103,6 +103,7 @@ func TestCreateNaturalJobQueuesPlannedJob(t *testing.T) {
 			DurationMS:  5000,
 			MaxAttempts: 2,
 			Metadata:    map[string]string{"source": "test"},
+			Report:      llm.ReportPlan{Kind: "custom"},
 		}},
 	})
 
