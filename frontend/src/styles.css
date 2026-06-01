@@ -143,6 +143,30 @@ h2 {
   font-size: 13px;
 }
 
+.connection-status {
+  align-items: center;
+  color: #405060;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.connection-status::before {
+  border-radius: 999px;
+  content: "";
+  height: 9px;
+  width: 9px;
+}
+
+.connection-status.online::before {
+  background: #19a974;
+}
+
+.connection-status.offline::before {
+  background: #b42318;
+}
+
 .icon-button,
 .primary-button {
   border: 0;

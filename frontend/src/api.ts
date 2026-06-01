@@ -40,6 +40,10 @@ export type QueueStatus = {
   capacity: number;
 };
 
+export type HealthStatus = {
+  status: string;
+};
+
 export type CreateJobInput = {
   name: string;
   type: string;
@@ -63,6 +67,10 @@ export async function fetchWorkers(): Promise<Worker[]> {
 
 export function fetchQueue(): Promise<QueueStatus> {
   return request<QueueStatus>("/v1/queue");
+}
+
+export function fetchHealth(): Promise<HealthStatus> {
+  return request<HealthStatus>("/healthz");
 }
 
 export function createJob(input: CreateJobInput): Promise<Job> {

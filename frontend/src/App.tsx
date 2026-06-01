@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   createJob,
+  fetchHealth,
   fetchJobs,
   fetchQueue,
   fetchWorkers,
@@ -54,6 +55,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiOnline, setApiOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const selectedJob = useMemo(
@@ -73,7 +75,8 @@ export function App() {
 
   async function refresh() {
     try {
-      const [nextJobs, nextWorkers, nextQueue] = await Promise.all([
+      const [, nextJobs, nextWorkers, nextQueue] = await Promise.all([
+        fetchHealth(),
         fetchJobs(),
         fetchWorkers(),
         fetchQueue()
@@ -81,9 +84,11 @@ export function App() {
       setJobs(nextJobs);
       setWorkers(nextWorkers);
       setQueue(nextQueue);
+      setApiOnline(true);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
+      setApiOnline(false);
       setError(err instanceof Error ? err.message : "failed to refresh dashboard");
     } finally {
       setLoading(false);
@@ -163,6 +168,9 @@ export function App() {
             <h1>Operations Overview</h1>
           </div>
           <div className="topbar-actions">
+            <span className={`connection-status ${apiOnline ? "online" : "offline"}`}>
+              {apiOnline ? "API online" : "API offline"}
+            </span>
             <span className="updated">{lastUpdated ? `Updated ${formatTime(lastUpdated)}` : "Not synced"}</span>
             <button className="icon-button" type="button" onClick={() => void refresh()} aria-label="Refresh">
               <RefreshCw size={18} />
