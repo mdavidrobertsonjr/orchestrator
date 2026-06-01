@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,13 +24,24 @@ func main() {
 	}))
 
 	cfg := configFromEnv()
-	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(cfg.QueueSize)
 	registry := workers.NewMemoryRegistry()
 	executor := worker.NewSimulatedExecutor(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	store, closeStore, err := buildStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize job store", "error", err)
+		return
+	}
+	defer closeStore()
+
+	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
+		logger.Error("failed to hydrate pending jobs", "error", err)
+		return
+	}
 
 	pool := worker.NewPool(worker.PoolConfig{
 		WorkerCount:       cfg.WorkerCount,
@@ -76,17 +88,64 @@ func main() {
 }
 
 type config struct {
-	Addr        string
-	QueueSize   int
-	WorkerCount int
+	Addr          string
+	QueueSize     int
+	WorkerCount   int
+	DatabaseURL   string
+	AutoMigrateDB bool
 }
 
 func configFromEnv() config {
 	return config{
-		Addr:        envString("ORCH_ADDR", ":8080"),
-		QueueSize:   envInt("ORCH_QUEUE_SIZE", 128),
-		WorkerCount: envInt("ORCH_WORKERS", 2),
+		Addr:          envString("ORCH_ADDR", ":8080"),
+		QueueSize:     envInt("ORCH_QUEUE_SIZE", 128),
+		WorkerCount:   envInt("ORCH_WORKERS", 2),
+		DatabaseURL:   os.Getenv("ORCH_DATABASE_URL"),
+		AutoMigrateDB: envBool("ORCH_AUTO_MIGRATE", true),
 	}
+}
+
+func buildStore(ctx context.Context, cfg config, logger *slog.Logger) (jobs.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory job store")
+		return jobs.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := jobs.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres job store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres job store", "error", err)
+		}
+	}, nil
+}
+
+func enqueuePendingJobs(ctx context.Context, store jobs.Store, queue jobs.Queue) error {
+	storedJobs, err := store.List()
+	if err != nil {
+		return err
+	}
+
+	for _, job := range storedJobs {
+		if job.Status != jobs.StatusQueued && job.Status != jobs.StatusRunning {
+			continue
+		}
+		if err := queue.Enqueue(ctx, job.ID); err != nil {
+			return fmt.Errorf("enqueue persisted job %s: %w", job.ID, err)
+		}
+	}
+	return nil
 }
 
 func envString(key, fallback string) string {
@@ -104,6 +163,19 @@ func envInt(key string, fallback int) int {
 
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
 		return fallback
 	}
 	return parsed

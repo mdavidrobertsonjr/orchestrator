@@ -116,8 +116,15 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := s.store.List()
+	if err != nil {
+		s.logger.Error("failed to list jobs", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list jobs")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"jobs": s.store.List(),
+		"jobs": jobs,
 	})
 }
 

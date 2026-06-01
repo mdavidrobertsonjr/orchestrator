@@ -14,7 +14,7 @@ var ErrNotFound = errors.New("job not found")
 type Store interface {
 	Create(params CreateJobParams) (*Job, error)
 	Get(id string) (*Job, error)
-	List() []*Job
+	List() ([]*Job, error)
 	MarkRunning(id string) (*Job, error)
 	MarkSucceeded(id string, message string) (*Job, error)
 	MarkFailed(id string, errMessage string) (*Job, error)
@@ -73,7 +73,7 @@ func (s *MemoryStore) Get(id string) (*Job, error) {
 	return cloneJob(job), nil
 }
 
-func (s *MemoryStore) List() []*Job {
+func (s *MemoryStore) List() ([]*Job, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -86,7 +86,7 @@ func (s *MemoryStore) List() []*Job {
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
 
-	return out
+	return out, nil
 }
 
 func (s *MemoryStore) MarkRunning(id string) (*Job, error) {
