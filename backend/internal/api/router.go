@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/workers"
 )
 
@@ -19,6 +20,7 @@ type Config struct {
 	Workers workers.Registry
 	Logger  *slog.Logger
 	Static  string
+	Planner llm.Planner
 }
 
 type Server struct {
@@ -26,6 +28,7 @@ type Server struct {
 	store   jobs.Store
 	workers workers.Registry
 	logger  *slog.Logger
+	planner llm.Planner
 }
 
 func NewRouter(config Config) http.Handler {
@@ -34,12 +37,14 @@ func NewRouter(config Config) http.Handler {
 		store:   config.Store,
 		workers: config.Workers,
 		logger:  config.Logger,
+		planner: config.Planner,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /v1/jobs", server.handleListJobs)
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
+	mux.HandleFunc("POST /v1/jobs/natural", server.handleCreateNaturalJob)
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
@@ -56,6 +61,10 @@ type createJobRequest struct {
 	Payload     map[string]any    `json:"payload"`
 	MaxAttempts int               `json:"max_attempts"`
 	Metadata    map[string]string `json:"metadata"`
+}
+
+type createNaturalJobRequest struct {
+	Prompt string `json:"prompt"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -83,13 +92,65 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	job, err := s.store.Create(jobs.CreateJobParams{
+	s.createAndEnqueueJob(w, r, jobs.CreateJobParams{
 		Name:        req.Name,
 		Type:        req.Type,
 		Payload:     req.Payload,
 		MaxAttempts: req.MaxAttempts,
 		Metadata:    req.Metadata,
 	})
+}
+
+func (s *Server) handleCreateNaturalJob(w http.ResponseWriter, r *http.Request) {
+	if s.planner == nil {
+		writeError(w, http.StatusServiceUnavailable, "LLM planner is not configured")
+		return
+	}
+
+	var req createNaturalJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	plan, err := s.planner.Plan(r.Context(), req.Prompt)
+	if err != nil {
+		s.logger.Error("failed to plan natural language job", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to plan job")
+		return
+	}
+	if plan == nil {
+		s.logger.Error("failed to plan natural language job", "error", "planner returned nil plan")
+		writeError(w, http.StatusBadGateway, "failed to plan job")
+		return
+	}
+
+	metadata := plan.Metadata
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	metadata["submitted_by"] = "dashboard"
+	metadata["submitted_with"] = "natural_language"
+
+	s.createAndEnqueueJob(w, r, jobs.CreateJobParams{
+		Name:        plan.Name,
+		Type:        plan.Type,
+		MaxAttempts: plan.MaxAttempts,
+		Payload: map[string]any{
+			"duration_ms": plan.DurationMS,
+			"should_fail": plan.ShouldFail,
+		},
+		Metadata: metadata,
+	})
+}
+
+func (s *Server) createAndEnqueueJob(w http.ResponseWriter, r *http.Request, params jobs.CreateJobParams) {
+	job, err := s.store.Create(params)
 	if err != nil {
 		s.logger.Error("failed to create job", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to create job")

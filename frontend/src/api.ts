@@ -55,6 +55,10 @@ export type CreateJobInput = {
   metadata: Record<string, string>;
 };
 
+export type CreateNaturalJobInput = {
+  prompt: string;
+};
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await request<{ jobs: Job[] }>("/v1/jobs");
   return response.jobs;
@@ -75,6 +79,16 @@ export function fetchHealth(): Promise<HealthStatus> {
 
 export function createJob(input: CreateJobInput): Promise<Job> {
   return request<Job>("/v1/jobs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+}
+
+export function createNaturalJob(input: CreateNaturalJobInput): Promise<Job> {
+  return request<Job>("/v1/jobs/natural", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

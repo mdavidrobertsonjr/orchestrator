@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/workers"
 )
 
@@ -84,6 +86,64 @@ func TestCreateJobValidation(t *testing.T) {
 				t.Fatalf("expected status %d, got %d with body %s", http.StatusBadRequest, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestCreateNaturalJobQueuesPlannedJob(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	router := NewRouter(Config{
+		Queue:   queue,
+		Store:   store,
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Planner: fakePlanner{plan: &llm.JobPlan{
+			Name:        "english transcode",
+			Type:        "video.transcode",
+			DurationMS:  5000,
+			MaxAttempts: 2,
+			Metadata:    map[string]string{"source": "test"},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/natural", bytes.NewBufferString(`{"prompt":"transcode for five seconds"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("expected queued planned job, got queue length %d", queue.Len())
+	}
+
+	var job jobs.Job
+	if err := json.NewDecoder(rec.Body).Decode(&job); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if job.Name != "english transcode" || job.Type != "video.transcode" {
+		t.Fatalf("unexpected planned job: %#v", job)
+	}
+	if job.Payload["duration_ms"] != float64(5000) {
+		t.Fatalf("expected planned duration payload, got %#v", job.Payload)
+	}
+	if job.Metadata["submitted_with"] != "natural_language" {
+		t.Fatalf("expected natural language metadata, got %#v", job.Metadata)
+	}
+}
+
+func TestCreateNaturalJobWithoutPlanner(t *testing.T) {
+	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/natural", bytes.NewBufferString(`{"prompt":"run a job"}`))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
 	}
 }
 
@@ -290,4 +350,13 @@ func testRouterWithStatic(staticDir string) http.Handler {
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Static:  staticDir,
 	})
+}
+
+type fakePlanner struct {
+	plan *llm.JobPlan
+	err  error
+}
+
+func (p fakePlanner) Plan(context.Context, string) (*llm.JobPlan, error) {
+	return p.plan, p.err
 }

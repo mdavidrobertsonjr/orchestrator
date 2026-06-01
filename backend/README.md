@@ -41,6 +41,14 @@ ORCH_ADDR=:8080 ORCH_WORKERS=4 ORCH_QUEUE_SIZE=256 go run ./cmd/api
 
 The API serves the built dashboard from `../frontend/dist` by default. Override that path with `ORCH_STATIC_DIR`, or leave it empty to run only the API.
 
+Enable English job requests with OpenAI:
+
+```bash
+OPENAI_API_KEY=sk-... ORCH_OPENAI_MODEL=gpt-5.4-nano go run ./cmd/api
+```
+
+If `OPENAI_API_KEY` is not set, structured job submission still works and `/v1/jobs/natural` returns `503`.
+
 Use Postgres for durable job state:
 
 ```bash

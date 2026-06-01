@@ -55,6 +55,16 @@ Stop Postgres when you are done:
 make postgres-stop
 ```
 
+## English Job Requests
+
+Set an OpenAI API key before starting the backend to enable the dashboard's English job request form:
+
+```bash
+OPENAI_API_KEY=sk-... make website
+```
+
+The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
+
 ## Checks
 
 Run backend tests and build the frontend:

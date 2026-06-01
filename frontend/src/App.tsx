@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   createJob,
+  createNaturalJob,
   fetchHealth,
   fetchJobs,
   fetchQueue,
@@ -51,6 +52,7 @@ export function App() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
+  const [naturalPrompt, setNaturalPrompt] = useState("Run a video transcode job for 5 seconds and retry twice");
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -123,6 +125,22 @@ export function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to submit job");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleNaturalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const created = await createNaturalJob({ prompt: naturalPrompt.trim() });
+      setSelectedJobID(created.id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to submit natural language job");
     } finally {
       setSubmitting(false);
     }
@@ -212,6 +230,29 @@ export function App() {
           </div>
 
           <aside className="side-column">
+            <section className="panel submit-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Ask Orchestrator</h2>
+                  <p>Describe a job in English</p>
+                </div>
+              </div>
+              <form className="submit-form" onSubmit={handleNaturalSubmit}>
+                <label>
+                  <span>Request</span>
+                  <textarea
+                    value={naturalPrompt}
+                    onChange={(event) => setNaturalPrompt(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+                <button className="primary-button" type="submit" disabled={submitting || naturalPrompt.trim() === ""}>
+                  <Send size={16} />
+                  {submitting ? "Planning" : "Plan & Submit"}
+                </button>
+              </form>
+            </section>
+
             <section className="panel submit-panel">
               <div className="panel-header">
                 <div>
