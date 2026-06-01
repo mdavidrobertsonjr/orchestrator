@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
@@ -217,6 +220,55 @@ func TestListWorkers(t *testing.T) {
 	}
 }
 
+func TestStaticDashboardServing(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(staticDir, "assets"), 0o755); err != nil {
+		t.Fatalf("create assets dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(staticDir, "assets", "app.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	router := testRouterWithStatic(staticDir)
+
+	rootReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	rootRec := httptest.NewRecorder()
+	router.ServeHTTP(rootRec, rootReq)
+	if rootRec.Code != http.StatusOK {
+		t.Fatalf("expected root status %d, got %d", http.StatusOK, rootRec.Code)
+	}
+	if !strings.Contains(rootRec.Body.String(), `id="root"`) {
+		t.Fatalf("expected index html, got %q", rootRec.Body.String())
+	}
+
+	assetReq := httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	assetRec := httptest.NewRecorder()
+	router.ServeHTTP(assetRec, assetReq)
+	if assetRec.Code != http.StatusOK {
+		t.Fatalf("expected asset status %d, got %d", http.StatusOK, assetRec.Code)
+	}
+	if assetRec.Body.String() != "console.log('ok')" {
+		t.Fatalf("expected asset body, got %q", assetRec.Body.String())
+	}
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	healthRec := httptest.NewRecorder()
+	router.ServeHTTP(healthRec, healthReq)
+	if healthRec.Code != http.StatusOK {
+		t.Fatalf("expected health route to remain available, got %d", healthRec.Code)
+	}
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/v1/missing", nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusNotFound {
+		t.Fatalf("expected unknown API route status %d, got %d", http.StatusNotFound, apiRec.Code)
+	}
+}
+
 func testRouter(store jobs.Store, queue jobs.Queue) http.Handler {
 	return testRouterWithWorkers(store, queue, workers.NewMemoryRegistry())
 }
@@ -227,5 +279,15 @@ func testRouterWithWorkers(store jobs.Store, queue jobs.Queue, registry workers.
 		Store:   store,
 		Workers: registry,
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+}
+
+func testRouterWithStatic(staticDir string) http.Handler {
+	return NewRouter(Config{
+		Queue:   jobs.NewMemoryQueue(2),
+		Store:   jobs.NewMemoryStore(),
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Static:  staticDir,
 	})
 }

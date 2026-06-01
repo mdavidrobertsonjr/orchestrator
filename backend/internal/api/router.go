@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"orchestrator/backend/internal/jobs"
@@ -16,6 +18,7 @@ type Config struct {
 	Store   jobs.Store
 	Workers workers.Registry
 	Logger  *slog.Logger
+	Static  string
 }
 
 type Server struct {
@@ -40,6 +43,9 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
+	if config.Static != "" {
+		mux.Handle("GET /", staticHandler(config.Static))
+	}
 
 	return requestLogger(server.logger, corsMiddleware(mux))
 }
@@ -184,4 +190,34 @@ func isAllowedDevOrigin(origin string) bool {
 	default:
 		return false
 	}
+}
+
+func staticHandler(dir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(dir))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/v1" {
+			http.NotFound(w, r)
+			return
+		}
+
+		requestPath := filepath.Clean(r.URL.Path)
+		if requestPath == "." || requestPath == string(filepath.Separator) {
+			serveIndex(w, r, dir)
+			return
+		}
+
+		filePath := filepath.Join(dir, filepath.FromSlash(strings.TrimPrefix(requestPath, "/")))
+		info, err := os.Stat(filePath)
+		if err != nil || info.IsDir() {
+			serveIndex(w, r, dir)
+			return
+		}
+
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+func serveIndex(w http.ResponseWriter, r *http.Request, dir string) {
+	http.ServeFile(w, r, filepath.Join(dir, "index.html"))
 }

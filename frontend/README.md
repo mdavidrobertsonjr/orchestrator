@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-The dashboard expects the API at `http://localhost:8080` by default. Override it with:
+In development, Vite proxies `/healthz` and `/v1` requests to `http://localhost:8080`. Override the API base URL with:
 
 ```bash
 VITE_API_BASE_URL=http://localhost:8080 npm run dev

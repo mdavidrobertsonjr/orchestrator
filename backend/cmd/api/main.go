@@ -55,6 +55,7 @@ func main() {
 		Store:   store,
 		Workers: registry,
 		Logger:  logger,
+		Static:  cfg.StaticDir,
 	})
 
 	server := &http.Server{
@@ -93,6 +94,7 @@ type config struct {
 	WorkerCount   int
 	DatabaseURL   string
 	AutoMigrateDB bool
+	StaticDir     string
 }
 
 func configFromEnv() config {
@@ -102,6 +104,7 @@ func configFromEnv() config {
 		WorkerCount:   envInt("ORCH_WORKERS", 2),
 		DatabaseURL:   os.Getenv("ORCH_DATABASE_URL"),
 		AutoMigrateDB: envBool("ORCH_AUTO_MIGRATE", true),
+		StaticDir:     envOptionalString("ORCH_STATIC_DIR", "../frontend/dist"),
 	}
 }
 
@@ -153,6 +156,14 @@ func envString(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envOptionalString(key, fallback string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback
+	}
+	return value
 }
 
 func envInt(key string, fallback int) int {

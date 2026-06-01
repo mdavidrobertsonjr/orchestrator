@@ -39,6 +39,8 @@ Optional configuration:
 ORCH_ADDR=:8080 ORCH_WORKERS=4 ORCH_QUEUE_SIZE=256 go run ./cmd/api
 ```
 
+The API serves the built dashboard from `../frontend/dist` by default. Override that path with `ORCH_STATIC_DIR`, or leave it empty to run only the API.
+
 Use Postgres for durable job state:
 
 ```bash

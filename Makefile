@@ -3,7 +3,7 @@ SHELL := /bin/bash
 POSTGRES_URL := postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 BACKEND_ENV := GOCACHE=/tmp/go-build-cache ORCH_ADDR=:8080 ORCH_WORKERS=2
 
-.PHONY: dev dev-postgres frontend backend postgres postgres-stop test
+.PHONY: dev dev-postgres website website-postgres frontend backend postgres postgres-stop test
 
 dev:
 	(cd backend && env $(BACKEND_ENV) go run ./cmd/api) & \
@@ -16,6 +16,14 @@ dev-postgres: postgres
 	backend_pid=$$!; \
 	trap 'kill $$backend_pid 2>/dev/null' EXIT INT TERM; \
 	cd frontend && npm run dev
+
+website:
+	cd frontend && npm run build
+	cd backend && env $(BACKEND_ENV) go run ./cmd/api
+
+website-postgres: postgres
+	cd frontend && npm run build
+	cd backend && env $(BACKEND_ENV) ORCH_DATABASE_URL='$(POSTGRES_URL)' go run ./cmd/api
 
 frontend:
 	cd frontend && npm run dev

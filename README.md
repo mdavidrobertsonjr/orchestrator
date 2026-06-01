@@ -23,12 +23,30 @@ Open the dashboard:
 http://localhost:5173
 ```
 
+Run the production-style single-server website:
+
+```bash
+make website
+```
+
+Open:
+
+```text
+http://localhost:8080
+```
+
 ## Postgres Mode
 
 Start the API and dashboard with a local Postgres container:
 
 ```bash
 make dev-postgres
+```
+
+Or run the single-server website with Postgres:
+
+```bash
+make website-postgres
 ```
 
 Stop Postgres when you are done:
