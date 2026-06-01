@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
+	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
 )
 
@@ -29,7 +29,9 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 
 	logf(fmt.Sprintf("executor received %q job", job.Type))
 	if job.Type == "report.email" {
-		logEmailReport(job.Payload, logf)
+		if err := sendEmailReport(ctx, job.Payload, email.NewSimulatedSender(logf), logf); err != nil {
+			return err
+		}
 	}
 	logf(fmt.Sprintf("simulating work for %s", duration))
 
@@ -50,17 +52,20 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	return nil
 }
 
-func logEmailReport(payload map[string]any, logf func(string)) {
+func sendEmailReport(ctx context.Context, payload map[string]any, sender email.Sender, logf func(string)) error {
 	report, ok := payload["report"]
 	if !ok {
 		logf("email report payload missing; using default report")
-		return
+		return sender.Send(ctx, email.Message{
+			Subject:  "Orchestrator report",
+			Metadata: map[string]string{"kind": "job_summary", "schedule": "immediate"},
+		})
 	}
 
 	data, err := json.Marshal(report)
 	if err != nil {
 		logf("email report payload could not be encoded")
-		return
+		return err
 	}
 
 	var parsed struct {
@@ -71,24 +76,18 @@ func logEmailReport(payload map[string]any, logf func(string)) {
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		logf("email report payload could not be decoded")
-		return
+		return err
 	}
 
-	if len(parsed.Recipients) == 0 {
-		logf("email report has no recipients; delivery is simulated")
-	} else {
-		logf("email report recipients: " + strings.Join(parsed.Recipients, ", "))
-	}
-	if parsed.Subject != "" {
-		logf("email report subject: " + parsed.Subject)
-	}
-	if parsed.Kind != "" {
-		logf("email report kind: " + parsed.Kind)
-	}
-	if parsed.Schedule != "" && parsed.Schedule != "immediate" {
-		logf("email report schedule noted but not yet scheduled: " + parsed.Schedule)
-	}
-	logf("email delivery provider not configured; simulated report only")
+	return sender.Send(ctx, email.Message{
+		Recipients: parsed.Recipients,
+		Subject:    parsed.Subject,
+		Body:       "Simulated orchestrator report.",
+		Metadata: map[string]string{
+			"kind":     parsed.Kind,
+			"schedule": parsed.Schedule,
+		},
+	})
 }
 
 func durationFromPayload(payload map[string]any) time.Duration {
