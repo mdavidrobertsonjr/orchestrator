@@ -158,6 +158,24 @@ func TestQueueStatus(t *testing.T) {
 	}
 }
 
+func TestCORSPreflightForDevFrontend(t *testing.T) {
+	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/jobs", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Fatalf("expected dev origin CORS header, got %q", got)
+	}
+}
+
 func TestListWorkers(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(3)
