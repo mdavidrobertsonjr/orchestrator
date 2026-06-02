@@ -15,6 +15,8 @@ import (
 	"orchestrator/backend/internal/api"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
+	"orchestrator/backend/internal/monitor"
+	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/worker"
 	"orchestrator/backend/internal/workers"
 )
@@ -27,7 +29,9 @@ func main() {
 	cfg := configFromEnv()
 	queue := jobs.NewMemoryQueue(cfg.QueueSize)
 	registry := workers.NewMemoryRegistry()
-	executor := worker.NewSimulatedExecutor(logger)
+	postingStore := postings.NewMemoryStore()
+	monitorRunner := monitor.NewRunner(postingStore, nil)
+	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
 	planner := buildPlanner(cfg, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

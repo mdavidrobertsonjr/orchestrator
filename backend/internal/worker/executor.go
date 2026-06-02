@@ -10,6 +10,7 @@ import (
 
 	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/monitor"
 )
 
 type Executor interface {
@@ -17,18 +18,23 @@ type Executor interface {
 }
 
 type SimulatedExecutor struct {
-	logger *slog.Logger
+	logger        *slog.Logger
+	monitorRunner *monitor.Runner
 }
 
-func NewSimulatedExecutor(logger *slog.Logger) *SimulatedExecutor {
-	return &SimulatedExecutor{logger: logger}
+func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner) *SimulatedExecutor {
+	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner}
 }
 
 func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
 	duration := durationFromPayload(job.Payload)
 
 	logf(fmt.Sprintf("executor received %q job", job.Type))
-	if job.Type == "report.email" {
+	if job.Type == monitor.NewGradJobType {
+		if _, err := e.monitorRunner.Run(ctx, job.Payload, logf); err != nil {
+			return err
+		}
+	} else if job.Type == "report.email" {
 		if err := sendEmailReport(ctx, job.Payload, email.NewSimulatedSender(logf), logf); err != nil {
 			return err
 		}

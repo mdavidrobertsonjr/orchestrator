@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/monitor"
+	"orchestrator/backend/internal/postings"
 )
 
 func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
-	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	job := &jobs.Job{
 		Type: "report.email",
 		Payload: map[string]any{
@@ -41,6 +43,57 @@ func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
 	}
 	if !containsLog(logs, "email delivery provider not configured; simulated report only") {
 		t.Fatalf("expected simulated delivery log, got %#v", logs)
+	}
+}
+
+func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
+	postingStore := postings.NewMemoryStore()
+	executor := NewSimulatedExecutor(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		monitor.NewRunner(postingStore, nil),
+	)
+	job := &jobs.Job{
+		Type: monitor.NewGradJobType,
+		Payload: map[string]any{
+			"duration_ms": float64(100),
+			"sources": []map[string]any{
+				{
+					"type": "fake",
+					"name": "fixture",
+					"postings": []map[string]any{
+						{
+							"company":   "MongoDB",
+							"title":     "Software Engineer, New Grad",
+							"url":       "https://example.com/mongodb/new-grad",
+							"location":  "New York, NY",
+							"source":    "greenhouse",
+							"source_id": "mdb-1",
+						},
+					},
+				},
+			},
+			"keywords":  []string{"new grad"},
+			"locations": []string{"new york"},
+			"min_score": float64(1),
+		},
+	}
+
+	var logs []string
+	if err := executor.Execute(t.Context(), job, func(message string) {
+		logs = append(logs, message)
+	}); err != nil {
+		t.Fatalf("execute monitor job: %v", err)
+	}
+
+	stored, err := postingStore.List()
+	if err != nil {
+		t.Fatalf("list postings: %v", err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("expected one stored posting, got %d", len(stored))
+	}
+	if !containsLog(logs, "monitor completed: scanned=1 matched=1 new=1 updated=0") {
+		t.Fatalf("expected monitor completion log, got %#v", logs)
 	}
 }
 
