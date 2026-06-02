@@ -40,6 +40,24 @@ export type QueueStatus = {
   capacity: number;
 };
 
+export type Posting = {
+  id: string;
+  company: string;
+  title: string;
+  url: string;
+  location?: string;
+  source: string;
+  source_id?: string;
+  dedupe_key: string;
+  posted_at?: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  matched_at?: string;
+  match_score?: number;
+  match_reasons?: string[];
+  metadata?: Record<string, string>;
+};
+
 export type HealthStatus = {
   status: string;
 };
@@ -67,6 +85,11 @@ export async function fetchJobs(): Promise<Job[]> {
 export async function fetchWorkers(): Promise<Worker[]> {
   const response = await request<{ workers: Worker[] }>("/v1/workers");
   return response.workers;
+}
+
+export async function fetchPostings(): Promise<Posting[]> {
+  const response = await request<{ postings: Posting[] }>("/v1/postings");
+  return response.postings;
 }
 
 export function fetchQueue(): Promise<QueueStatus> {

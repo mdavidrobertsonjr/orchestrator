@@ -15,6 +15,7 @@ import (
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
+	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/workers"
 )
 
@@ -278,6 +279,67 @@ func TestListWorkers(t *testing.T) {
 	}
 	if response.Workers[0].CurrentJobID != "job-1" {
 		t.Fatalf("expected current job job-1, got %q", response.Workers[0].CurrentJobID)
+	}
+}
+
+func TestGetAndListPostings(t *testing.T) {
+	postingStore := postings.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:    jobs.NewMemoryQueue(2),
+		Store:    jobs.NewMemoryStore(),
+		Workers:  workers.NewMemoryRegistry(),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Postings: postingStore,
+	})
+
+	posting, isNew, err := postingStore.Upsert(postings.UpsertPostingParams{
+		Company:    "Datadog",
+		Title:      "Software Engineer, New Grad",
+		URL:        "https://example.com/datadog/new-grad",
+		Location:   "New York, NY",
+		Source:     "greenhouse",
+		SourceID:   "dd-1",
+		MatchScore: 40,
+	})
+	if err != nil {
+		t.Fatalf("create posting: %v", err)
+	}
+	if !isNew {
+		t.Fatal("expected new posting")
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/postings/"+posting.ID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, getRec.Code, getRec.Body.String())
+	}
+
+	var got postings.Posting
+	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.ID != posting.ID {
+		t.Fatalf("expected posting ID %q, got %q", posting.ID, got.ID)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/v1/postings", nil)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+
+	var list struct {
+		Postings []postings.Posting `json:"postings"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(list.Postings) != 1 || list.Postings[0].ID != posting.ID {
+		t.Fatalf("expected list with posting %q, got %#v", posting.ID, list.Postings)
 	}
 }
 

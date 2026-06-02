@@ -57,12 +57,13 @@ func main() {
 	pool.Start(ctx)
 
 	handler := api.NewRouter(api.Config{
-		Queue:   queue,
-		Store:   store,
-		Workers: registry,
-		Logger:  logger,
-		Static:  cfg.StaticDir,
-		Planner: planner,
+		Queue:    queue,
+		Store:    store,
+		Workers:  registry,
+		Logger:   logger,
+		Static:   cfg.StaticDir,
+		Planner:  planner,
+		Postings: postingStore,
 	})
 
 	server := &http.Server{

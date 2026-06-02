@@ -11,33 +11,37 @@ import (
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
+	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/workers"
 )
 
 type Config struct {
-	Queue   jobs.Queue
-	Store   jobs.Store
-	Workers workers.Registry
-	Logger  *slog.Logger
-	Static  string
-	Planner llm.Planner
+	Queue    jobs.Queue
+	Store    jobs.Store
+	Workers  workers.Registry
+	Logger   *slog.Logger
+	Static   string
+	Planner  llm.Planner
+	Postings postings.Store
 }
 
 type Server struct {
-	queue   jobs.Queue
-	store   jobs.Store
-	workers workers.Registry
-	logger  *slog.Logger
-	planner llm.Planner
+	queue    jobs.Queue
+	store    jobs.Store
+	workers  workers.Registry
+	logger   *slog.Logger
+	planner  llm.Planner
+	postings postings.Store
 }
 
 func NewRouter(config Config) http.Handler {
 	server := &Server{
-		queue:   config.Queue,
-		store:   config.Store,
-		workers: config.Workers,
-		logger:  config.Logger,
-		planner: config.Planner,
+		queue:    config.Queue,
+		store:    config.Store,
+		workers:  config.Workers,
+		logger:   config.Logger,
+		planner:  config.Planner,
+		postings: config.Postings,
 	}
 
 	mux := http.NewServeMux()
@@ -48,6 +52,8 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
+	mux.HandleFunc("GET /v1/postings", server.handleListPostings)
+	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
 	if config.Static != "" {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
@@ -207,6 +213,44 @@ func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workers": s.workers.List(),
 	})
+}
+
+func (s *Server) handleListPostings(w http.ResponseWriter, r *http.Request) {
+	if s.postings == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"postings": []*postings.Posting{}})
+		return
+	}
+
+	postings, err := s.postings.List()
+	if err != nil {
+		s.logger.Error("failed to list postings", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list postings")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"postings": postings,
+	})
+}
+
+func (s *Server) handleGetPosting(w http.ResponseWriter, r *http.Request) {
+	if s.postings == nil {
+		writeError(w, http.StatusNotFound, "posting not found")
+		return
+	}
+
+	posting, err := s.postings.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, postings.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "posting not found")
+			return
+		}
+		s.logger.Error("failed to get posting", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get posting")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, posting)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

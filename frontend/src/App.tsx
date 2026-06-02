@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   Cpu,
+  ExternalLink,
   LayoutDashboard,
   ListChecks,
   Play,
@@ -20,10 +21,12 @@ import {
   createNaturalJob,
   fetchHealth,
   fetchJobs,
+  fetchPostings,
   fetchQueue,
   fetchWorkers,
   Job,
   JobStatus,
+  Posting,
   QueueStatus,
   Worker,
   WorkerStatus
@@ -49,6 +52,7 @@ const initialSubmitState: SubmitState = {
 
 export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [postings, setPostings] = useState<Posting[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
@@ -71,21 +75,24 @@ export function App() {
       running: jobs.filter((job) => job.status === "running").length,
       succeeded: jobs.filter((job) => job.status === "succeeded").length,
       failed: jobs.filter((job) => job.status === "failed").length,
+      postings: postings.length,
       activeWorkers: workers.filter((worker) => worker.status !== "stopped").length
     };
-  }, [jobs, workers]);
+  }, [jobs, postings, workers]);
 
   async function refresh() {
     try {
-      const [, nextJobs, nextWorkers, nextQueue] = await Promise.all([
+      const [, nextJobs, nextWorkers, nextQueue, nextPostings] = await Promise.all([
         fetchHealth(),
         fetchJobs(),
         fetchWorkers(),
-        fetchQueue()
+        fetchQueue(),
+        fetchPostings()
       ]);
       setJobs(nextJobs);
       setWorkers(nextWorkers);
       setQueue(nextQueue);
+      setPostings(nextPostings);
       setApiOnline(true);
       setLastUpdated(new Date());
       setError(null);
@@ -168,6 +175,10 @@ export function App() {
             <ListChecks size={18} />
             Jobs
           </a>
+          <a className="nav-item" href="#postings">
+            <ExternalLink size={18} />
+            Postings
+          </a>
           <a className="nav-item" href="#workers">
             <Server size={18} />
             Workers
@@ -203,6 +214,7 @@ export function App() {
           <SummaryCard label="Running" value={summary.running} icon={<Play size={20} />} tone="running" />
           <SummaryCard label="Succeeded" value={summary.succeeded} icon={<CheckCircle2 size={20} />} tone="succeeded" />
           <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
+          <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
           <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
         </section>
 
@@ -216,6 +228,16 @@ export function App() {
                 </div>
               </div>
               <JobsTable jobs={jobs} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
+            </section>
+
+            <section id="postings" className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Discovered Postings</h2>
+                  <p>{postings.length} monitor matches</p>
+                </div>
+              </div>
+              <PostingsTable postings={postings} loading={loading} />
             </section>
 
             <section id="workers" className="panel">
@@ -465,6 +487,53 @@ function WorkersTable({ workers, loading }: { workers: Worker[]; loading: boolea
               </td>
               <td>{worker.current_job_id ? worker.current_job_id.slice(0, 12) : "-"}</td>
               <td>{relativeTime(worker.last_heartbeat)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PostingsTable({ postings, loading }: { postings: Posting[]; loading: boolean }) {
+  if (loading) {
+    return <EmptyState label="Loading postings" />;
+  }
+  if (postings.length === 0) {
+    return <EmptyState label="No postings discovered" />;
+  }
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Location</th>
+            <th>Source</th>
+            <th>Score</th>
+            <th>Matched</th>
+          </tr>
+        </thead>
+        <tbody>
+          {postings.map((posting) => (
+            <tr key={posting.id}>
+              <td>
+                <strong>
+                  <a className="posting-link" href={posting.url} target="_blank" rel="noreferrer">
+                    {posting.title}
+                    <ExternalLink size={13} />
+                  </a>
+                </strong>
+                <span>{posting.company}</span>
+              </td>
+              <td>{posting.location || "-"}</td>
+              <td>
+                <strong>{posting.source}</strong>
+                <span>{posting.source_id || posting.id.slice(0, 12)}</span>
+              </td>
+              <td>{posting.match_score ?? 0}</td>
+              <td>{relativeTime(posting.matched_at ?? posting.first_seen_at)}</td>
             </tr>
           ))}
         </tbody>
