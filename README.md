@@ -2,6 +2,8 @@
 
 Distributed job orchestration MVP with a Go control-plane API, embedded workers, optional Postgres job persistence, and a React operations dashboard.
 
+The long-term direction is a general-purpose task orchestrator: a user should be able to describe useful work in English, have the system plan it into structured jobs, run those jobs through workers, persist state, retry failures, and report results. Job monitoring is the first flagship workflow because it is personally useful and gives the orchestrator a real recurring workload.
+
 ## Quick Start
 
 Install frontend dependencies once:
@@ -66,6 +68,38 @@ OPENAI_API_KEY=sk-... make website
 The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
 
 Email report requests are supported as simulated `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs, but it does not send real email until an email provider is configured in a later step.
+
+## Product Direction
+
+Position the project as a distributed task orchestrator with natural-language job planning and production-style workflows:
+
+> Built a Go-based distributed task orchestrator that converts English requests into structured jobs, runs them through a worker pool with heartbeats and retries, persists state in Postgres, exposes dashboard observability, and supports real workflows such as targeted new-grad SWE job monitoring.
+
+The orchestrator should stay workflow-agnostic. New capabilities should be modeled as job types with explicit payload schemas, executors, logs, and result state. The system can support many recurring tasks over time, such as reports, monitors, notifications, data collection, and personal workflow automation.
+
+The first major workflow should be `jobs.monitor.new_grad`: a job type that checks company career pages and ATS providers for new-grad software engineering roles, persists discovered postings, deduplicates seen roles, ranks/filter matches, and emits immediate or daily notifications.
+
+Optimize for quality and speed over application volume. The system should find roles earlier than broad job boards, filter out low-signal postings, and surface a small set of opportunities worth acting on. The target profile is NYC or NYC-friendly new-grad SWE roles at companies that plausibly clear a strong existing baseline, including top tech companies, finance/fintech, AI/infrastructure/devtools/security startups, and selective remote roles.
+
+Application support should stay human-in-the-loop. The public project story should be role discovery, ranking, tracking, and unresolved-question notifications, not bulk auto-apply. A later application workflow can create tasks such as `interested`, `needs_answer`, `ready_to_apply`, `applied`, `skipped`, and `interviewing`, while leaving final review and submission to the user.
+
+Suggested implementation order for the job-monitoring workflow:
+
+1. Add a posting model and store under `backend/internal/postings`.
+2. Add a monitor job payload with companies, sources, keywords, excluded keywords, locations, and notification mode.
+3. Implement source adapters for a fake/test source first, then Greenhouse and Lever-style public boards.
+4. Normalize postings into one schema: company, title, URL, location, source, and posted/discovered timestamps.
+5. Persist seen postings so repeat runs only alert on new matches.
+6. Extend the worker executor with a real `jobs.monitor.new_grad` path.
+7. Add ranking based on location fit, company quality, role fit, new-grad confidence, and whether the role is worth acting on quickly.
+8. Show discovered postings, monitor runs, failures, rankings, and alert history in the dashboard.
+9. Add scheduling and backoff so monitors can run daily or near real-time without manual submission.
+10. Add an application task queue for tracking interest, unresolved free-response questions, submitted applications, and skipped roles.
+11. Replace simulated email with a real notification provider when the workflow is stable.
+
+Keep other use cases secondary. Generic demo jobs are useful for testing, and `report.email` supports notifications, but the job-monitoring workflow should be the main demo of the orchestrator's value.
+
+Do not hard-code the product around one niche. The job-monitoring flow should be implemented as a reusable pattern: source adapters, normalized results, deduplication, ranking/filtering, notification, scheduling, and dashboard visibility. Future workflows should be able to reuse the same orchestration primitives.
 
 ## Checks
 
