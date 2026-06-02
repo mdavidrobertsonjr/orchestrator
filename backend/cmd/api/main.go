@@ -29,9 +29,6 @@ func main() {
 	cfg := configFromEnv()
 	queue := jobs.NewMemoryQueue(cfg.QueueSize)
 	registry := workers.NewMemoryRegistry()
-	postingStore := postings.NewMemoryStore()
-	monitorRunner := monitor.NewRunner(postingStore, nil)
-	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
 	planner := buildPlanner(cfg, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -43,6 +40,16 @@ func main() {
 		return
 	}
 	defer closeStore()
+
+	postingStore, closePostingStore, err := buildPostingStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize posting store", "error", err)
+		return
+	}
+	defer closePostingStore()
+
+	monitorRunner := monitor.NewRunner(postingStore, nil)
+	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
 
 	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
 		logger.Error("failed to hydrate pending jobs", "error", err)
@@ -152,6 +159,32 @@ func buildStore(ctx context.Context, cfg config, logger *slog.Logger) (jobs.Stor
 	return store, func() {
 		if err := store.Close(); err != nil {
 			logger.Error("failed to close postgres job store", "error", err)
+		}
+	}, nil
+}
+
+func buildPostingStore(ctx context.Context, cfg config, logger *slog.Logger) (postings.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory posting store")
+		return postings.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := postings.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres posting store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres posting store", "error", err)
 		}
 	}, nil
 }
