@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +26,11 @@ type Source interface {
 }
 
 type SourceConfig struct {
-	Type     string      `json:"type"`
-	Name     string      `json:"name"`
-	Company  string      `json:"company"`
-	Postings []Candidate `json:"postings"`
+	Type       string      `json:"type"`
+	Name       string      `json:"name"`
+	Company    string      `json:"company"`
+	BoardToken string      `json:"board_token"`
+	Postings   []Candidate `json:"postings"`
 }
 
 type Candidate struct {
@@ -63,6 +67,9 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	}
 	if _, ok := sources["fake"]; !ok {
 		sources["fake"] = FakeSource{}
+	}
+	if _, ok := sources["greenhouse"]; !ok {
+		sources["greenhouse"] = NewGreenhouseSource(nil)
 	}
 	return &Runner{store: store, sources: sources}
 }
@@ -230,4 +237,126 @@ func (FakeSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, 
 	default:
 	}
 	return append([]Candidate(nil), config.Postings...), nil
+}
+
+type GreenhouseSource struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewGreenhouseSource(client *http.Client) *GreenhouseSource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &GreenhouseSource{
+		client:  client,
+		baseURL: "https://boards-api.greenhouse.io",
+	}
+}
+
+func (s *GreenhouseSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	boardToken := strings.TrimSpace(config.BoardToken)
+	if boardToken == "" {
+		boardToken = strings.TrimSpace(config.Name)
+	}
+	if boardToken == "" {
+		return nil, errors.New("greenhouse source requires board_token")
+	}
+
+	endpoint, err := url.JoinPath(strings.TrimRight(s.baseURL, "/"), "v1", "boards", boardToken, "jobs")
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	query.Set("content", "true")
+	parsed.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("greenhouse returned status %d", resp.StatusCode)
+	}
+
+	var body greenhouseJobsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, len(body.Jobs))
+	for _, job := range body.Jobs {
+		location := job.Location.Name
+		if location == "" {
+			location = firstOfficeLocation(job.Offices)
+		}
+
+		metadata := map[string]string{
+			"board_token": boardToken,
+		}
+		if job.InternalJobID != nil {
+			metadata["internal_job_id"] = strconv.FormatInt(*job.InternalJobID, 10)
+		}
+		if job.Department.Name != "" {
+			metadata["department"] = job.Department.Name
+		}
+
+		candidates = append(candidates, Candidate{
+			Company:  firstNonEmpty(config.Company, config.Name, boardToken),
+			Title:    job.Title,
+			URL:      job.AbsoluteURL,
+			Location: location,
+			Source:   "greenhouse",
+			SourceID: strconv.FormatInt(job.ID, 10),
+			Metadata: metadata,
+		})
+	}
+
+	return candidates, nil
+}
+
+type greenhouseJobsResponse struct {
+	Jobs []greenhouseJob `json:"jobs"`
+}
+
+type greenhouseJob struct {
+	ID            int64                     `json:"id"`
+	InternalJobID *int64                    `json:"internal_job_id"`
+	Title         string                    `json:"title"`
+	AbsoluteURL   string                    `json:"absolute_url"`
+	Location      greenhouseLocation        `json:"location"`
+	Department    greenhouseNamedResource   `json:"department"`
+	Offices       []greenhouseNamedResource `json:"offices"`
+}
+
+type greenhouseLocation struct {
+	Name string `json:"name"`
+}
+
+type greenhouseNamedResource struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+}
+
+func firstOfficeLocation(offices []greenhouseNamedResource) string {
+	for _, office := range offices {
+		if strings.TrimSpace(office.Location) != "" {
+			return strings.TrimSpace(office.Location)
+		}
+		if strings.TrimSpace(office.Name) != "" {
+			return strings.TrimSpace(office.Name)
+		}
+	}
+	return ""
 }

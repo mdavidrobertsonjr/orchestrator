@@ -101,6 +101,33 @@ Keep other use cases secondary. Generic demo jobs are useful for testing, and `r
 
 Do not hard-code the product around one niche. The job-monitoring flow should be implemented as a reusable pattern: source adapters, normalized results, deduplication, ranking/filtering, notification, scheduling, and dashboard visibility. Future workflows should be able to reuse the same orchestration primitives.
 
+Example Greenhouse monitor payload:
+
+```json
+{
+  "name": "datadog-new-grad-monitor",
+  "type": "jobs.monitor.new_grad",
+  "max_attempts": 2,
+  "payload": {
+    "sources": [
+      {
+        "type": "greenhouse",
+        "company": "Datadog",
+        "board_token": "datadog"
+      }
+    ],
+    "keywords": ["new grad", "university", "software engineer"],
+    "excluded_keywords": ["senior", "staff", "principal"],
+    "locations": ["new york", "nyc"],
+    "min_score": 20,
+    "notification_mode": "daily"
+  },
+  "metadata": {
+    "submitted_by": "dashboard"
+  }
+}
+```
+
 ## Checks
 
 Run backend tests and build the frontend:
