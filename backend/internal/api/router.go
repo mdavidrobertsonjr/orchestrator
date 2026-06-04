@@ -65,6 +65,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
 	mux.HandleFunc("GET /v1/workflows", server.handleListWorkflows)
 	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
+	mux.HandleFunc("POST /v1/workflows/natural", server.handleCreateNaturalWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
 	mux.HandleFunc("GET /v1/results", server.handleListResults)
@@ -335,6 +336,65 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
+	writeJSON(w, http.StatusCreated, workflow)
+}
+
+func (s *Server) handleCreateNaturalWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusServiceUnavailable, "workflow store is not configured")
+		return
+	}
+	if s.planner == nil {
+		writeError(w, http.StatusServiceUnavailable, "LLM planner is not configured")
+		return
+	}
+
+	var req createNaturalJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	plan, err := s.planner.PlanWorkflow(r.Context(), req.Prompt)
+	if err != nil {
+		s.logger.Error("failed to plan natural language workflow", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to plan workflow")
+		return
+	}
+	if plan == nil {
+		s.logger.Error("failed to plan natural language workflow", "error", "planner returned nil plan")
+		writeError(w, http.StatusBadGateway, "failed to plan workflow")
+		return
+	}
+
+	metadata := plan.Metadata
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	metadata["submitted_by"] = "dashboard"
+	metadata["submitted_with"] = "natural_language"
+
+	workflow, err := s.workflows.Create(workflows.CreateWorkflowParams{
+		Name:            plan.Name,
+		JobType:         plan.JobType,
+		Payload:         plan.Payload,
+		Metadata:        metadata,
+		MaxAttempts:     plan.MaxAttempts,
+		Enabled:         plan.Enabled,
+		IntervalSeconds: plan.IntervalSeconds,
+	})
+	if err != nil {
+		s.logger.Error("failed to create planned workflow", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create workflow")
+		return
+	}
+
+	s.logger.Info("natural workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
 	writeJSON(w, http.StatusCreated, workflow)
 }
 

@@ -151,6 +151,60 @@ func TestCreateNaturalJobWithoutPlanner(t *testing.T) {
 	}
 }
 
+func TestCreateNaturalWorkflowCreatesPlannedWorkflow(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
+		Planner: fakePlanner{workflowPlan: &llm.WorkflowPlan{
+			Name:            "nyc new grad monitor",
+			JobType:         "jobs.monitor.new_grad",
+			IntervalSeconds: 86400,
+			MaxAttempts:     2,
+			Enabled:         true,
+			Payload:         map[string]any{"min_score": float64(20)},
+			Metadata:        map[string]string{"source": "test"},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/workflows/natural", bytes.NewBufferString(`{"prompt":"monitor nyc new grad roles daily"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var workflow workflows.Workflow
+	if err := json.NewDecoder(rec.Body).Decode(&workflow); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if workflow.Name != "nyc new grad monitor" || workflow.JobType != "jobs.monitor.new_grad" {
+		t.Fatalf("unexpected planned workflow: %#v", workflow)
+	}
+	if workflow.Metadata["submitted_with"] != "natural_language" {
+		t.Fatalf("expected natural language metadata, got %#v", workflow.Metadata)
+	}
+}
+
+func TestCreateNaturalWorkflowWithoutPlanner(t *testing.T) {
+	router := testRouterWithWorkflows(workflows.NewMemoryStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/workflows/natural", bytes.NewBufferString(`{"prompt":"monitor roles"}`))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
 func TestGetAndListJobs(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)
