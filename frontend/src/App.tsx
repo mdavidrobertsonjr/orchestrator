@@ -19,6 +19,7 @@ import {
 import {
   createJob,
   createNaturalJob,
+  createWorkflow,
   fetchHealth,
   fetchJobs,
   fetchPostings,
@@ -52,6 +53,41 @@ const initialSubmitState: SubmitState = {
   shouldFail: false
 };
 
+type WorkflowFormState = {
+  name: string;
+  jobType: string;
+  intervalSeconds: number;
+  maxAttempts: number;
+  enabled: boolean;
+  payload: string;
+};
+
+const initialWorkflowForm: WorkflowFormState = {
+  name: "datadog-new-grad-monitor",
+  jobType: "jobs.monitor.new_grad",
+  intervalSeconds: 86400,
+  maxAttempts: 2,
+  enabled: true,
+  payload: JSON.stringify(
+    {
+      sources: [
+        {
+          type: "greenhouse",
+          company: "Datadog",
+          board_token: "datadog"
+        }
+      ],
+      keywords: ["new grad", "university", "software engineer"],
+      excluded_keywords: ["senior", "staff", "principal"],
+      locations: ["new york", "nyc"],
+      min_score: 20,
+      notification_mode: "daily"
+    },
+    null,
+    2
+  )
+};
+
 export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
@@ -59,6 +95,7 @@ export function App() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
+  const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
   const [naturalPrompt, setNaturalPrompt] = useState("Email me a summary of failed jobs every morning at 8am");
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -154,6 +191,32 @@ export function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to submit natural language job");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleWorkflowSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const payload = JSON.parse(workflowForm.payload) as Record<string, unknown>;
+      await createWorkflow({
+        name: workflowForm.name.trim() || workflowForm.jobType.trim(),
+        job_type: workflowForm.jobType.trim(),
+        max_attempts: workflowForm.maxAttempts,
+        enabled: workflowForm.enabled,
+        interval_seconds: workflowForm.intervalSeconds,
+        payload,
+        metadata: {
+          submitted_by: "dashboard"
+        }
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to create workflow");
     } finally {
       setSubmitting(false);
     }
@@ -273,6 +336,91 @@ export function App() {
           </div>
 
           <aside className="side-column">
+            <section className="panel submit-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Schedule Workflow</h2>
+                  <p>Create recurring work</p>
+                </div>
+              </div>
+              <form className="submit-form" onSubmit={handleWorkflowSubmit}>
+                <label>
+                  <span>Name</span>
+                  <input
+                    value={workflowForm.name}
+                    onChange={(event) => setWorkflowForm({ ...workflowForm, name: event.target.value })}
+                    placeholder="datadog-new-grad-monitor"
+                  />
+                </label>
+                <label>
+                  <span>Job Type</span>
+                  <select
+                    value={workflowForm.jobType}
+                    onChange={(event) => setWorkflowForm({ ...workflowForm, jobType: event.target.value })}
+                  >
+                    <option value="jobs.monitor.new_grad">jobs.monitor.new_grad</option>
+                    <option value="report.email">report.email</option>
+                    <option value="video.transcode">video.transcode</option>
+                    <option value="scrape.url">scrape.url</option>
+                    <option value="data.pipeline">data.pipeline</option>
+                  </select>
+                </label>
+                <div className="field-row">
+                  <label>
+                    <span>Interval</span>
+                    <select
+                      value={workflowForm.intervalSeconds}
+                      onChange={(event) =>
+                        setWorkflowForm({ ...workflowForm, intervalSeconds: Number(event.target.value) })
+                      }
+                    >
+                      <option value={900}>15 minutes</option>
+                      <option value={3600}>Hourly</option>
+                      <option value={86400}>Daily</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Attempts</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={workflowForm.maxAttempts}
+                      onChange={(event) =>
+                        setWorkflowForm({ ...workflowForm, maxAttempts: Number(event.target.value) })
+                      }
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>Payload JSON</span>
+                  <textarea
+                    className="code-textarea"
+                    value={workflowForm.payload}
+                    rows={10}
+                    spellCheck={false}
+                    onChange={(event) => setWorkflowForm({ ...workflowForm, payload: event.target.value })}
+                  />
+                </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={workflowForm.enabled}
+                    onChange={(event) => setWorkflowForm({ ...workflowForm, enabled: event.target.checked })}
+                  />
+                  <span>Enabled</span>
+                </label>
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={submitting || workflowForm.jobType.trim() === ""}
+                >
+                  <Send size={16} />
+                  {submitting ? "Scheduling" : "Schedule Workflow"}
+                </button>
+              </form>
+            </section>
+
             <section className="panel submit-panel">
               <div className="panel-header">
                 <div>

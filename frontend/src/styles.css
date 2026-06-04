@@ -437,6 +437,12 @@ textarea {
   resize: vertical;
 }
 
+.code-textarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  min-height: 220px;
+}
+
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

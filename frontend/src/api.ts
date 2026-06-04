@@ -93,6 +93,16 @@ export type CreateNaturalJobInput = {
   prompt: string;
 };
 
+export type CreateWorkflowInput = {
+  name: string;
+  job_type: string;
+  max_attempts: number;
+  enabled: boolean;
+  interval_seconds: number;
+  payload: Record<string, unknown>;
+  metadata: Record<string, string>;
+};
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await request<{ jobs: Job[] }>("/v1/jobs");
   return response.jobs;
@@ -133,6 +143,16 @@ export function createJob(input: CreateJobInput): Promise<Job> {
 
 export function createNaturalJob(input: CreateNaturalJobInput): Promise<Job> {
   return request<Job>("/v1/jobs/natural", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+}
+
+export function createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
+  return request<Workflow>("/v1/workflows", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
