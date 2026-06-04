@@ -181,6 +181,16 @@ export function createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
   });
 }
 
+export function createNaturalWorkflow(input: CreateNaturalJobInput): Promise<Workflow> {
+  return request<Workflow>("/v1/workflows/natural", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+}
+
 export function updateWorkflow(id: string, input: UpdateWorkflowInput): Promise<Workflow> {
   return request<Workflow>(`/v1/workflows/${id}`, {
     method: "PATCH",

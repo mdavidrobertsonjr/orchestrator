@@ -21,6 +21,7 @@ import {
 import {
   createJob,
   createNaturalJob,
+  createNaturalWorkflow,
   createWorkflow,
   fetchHealth,
   fetchJobs,
@@ -102,6 +103,9 @@ export function App() {
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
+  const [naturalWorkflowPrompt, setNaturalWorkflowPrompt] = useState(
+    "Monitor Datadog new-grad software engineering roles in NYC every day"
+  );
   const [naturalPrompt, setNaturalPrompt] = useState("Email me a summary of failed jobs every morning at 8am");
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,6 +230,21 @@ export function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to create workflow");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleNaturalWorkflowSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await createNaturalWorkflow({ prompt: naturalWorkflowPrompt.trim() });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to create natural language workflow");
     } finally {
       setSubmitting(false);
     }
@@ -377,6 +396,33 @@ export function App() {
           </div>
 
           <aside className="side-column">
+            <section className="panel submit-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Describe Workflow</h2>
+                  <p>Plan recurring work in English</p>
+                </div>
+              </div>
+              <form className="submit-form" onSubmit={handleNaturalWorkflowSubmit}>
+                <label>
+                  <span>Request</span>
+                  <textarea
+                    value={naturalWorkflowPrompt}
+                    onChange={(event) => setNaturalWorkflowPrompt(event.target.value)}
+                    rows={4}
+                  />
+                </label>
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={submitting || naturalWorkflowPrompt.trim() === ""}
+                >
+                  <Send size={16} />
+                  {submitting ? "Planning" : "Plan Workflow"}
+                </button>
+              </form>
+            </section>
+
             <section className="panel submit-panel">
               <div className="panel-header">
                 <div>
