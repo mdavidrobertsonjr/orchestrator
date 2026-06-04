@@ -210,7 +210,7 @@ h2 {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -257,7 +257,8 @@ h2 {
 
 .summary-card.succeeded .summary-icon,
 .summary-card.workers .summary-icon,
-.summary-card.postings .summary-icon {
+.summary-card.postings .summary-icon,
+.summary-card.workflows .summary-icon {
   background: #e5f7ef;
   color: #137a53;
 }

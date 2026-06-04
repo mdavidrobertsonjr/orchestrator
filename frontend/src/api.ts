@@ -58,6 +58,22 @@ export type Posting = {
   metadata?: Record<string, string>;
 };
 
+export type Workflow = {
+  id: string;
+  name: string;
+  job_type: string;
+  payload?: Record<string, unknown>;
+  metadata?: Record<string, string>;
+  max_attempts: number;
+  enabled: boolean;
+  interval_seconds: number;
+  next_run_at: string;
+  last_run_at?: string;
+  last_job_id?: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type HealthStatus = {
   status: string;
 };
@@ -90,6 +106,11 @@ export async function fetchWorkers(): Promise<Worker[]> {
 export async function fetchPostings(): Promise<Posting[]> {
   const response = await request<{ postings: Posting[] }>("/v1/postings");
   return response.postings;
+}
+
+export async function fetchWorkflows(): Promise<Workflow[]> {
+  const response = await request<{ workflows: Workflow[] }>("/v1/workflows");
+  return response.workflows;
 }
 
 export function fetchQueue(): Promise<QueueStatus> {

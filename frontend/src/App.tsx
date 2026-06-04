@@ -23,13 +23,15 @@ import {
   fetchJobs,
   fetchPostings,
   fetchQueue,
+  fetchWorkflows,
   fetchWorkers,
   Job,
   JobStatus,
   Posting,
   QueueStatus,
   Worker,
-  WorkerStatus
+  WorkerStatus,
+  Workflow
 } from "./api";
 
 const defaultQueue: QueueStatus = { queued: 0, capacity: 0 };
@@ -53,6 +55,7 @@ const initialSubmitState: SubmitState = {
 export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
@@ -76,23 +79,26 @@ export function App() {
       succeeded: jobs.filter((job) => job.status === "succeeded").length,
       failed: jobs.filter((job) => job.status === "failed").length,
       postings: postings.length,
+      workflows: workflows.length,
       activeWorkers: workers.filter((worker) => worker.status !== "stopped").length
     };
-  }, [jobs, postings, workers]);
+  }, [jobs, postings, workflows, workers]);
 
   async function refresh() {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextPostings] = await Promise.all([
+      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows] = await Promise.all([
         fetchHealth(),
         fetchJobs(),
         fetchWorkers(),
         fetchQueue(),
-        fetchPostings()
+        fetchPostings(),
+        fetchWorkflows()
       ]);
       setJobs(nextJobs);
       setWorkers(nextWorkers);
       setQueue(nextQueue);
       setPostings(nextPostings);
+      setWorkflows(nextWorkflows);
       setApiOnline(true);
       setLastUpdated(new Date());
       setError(null);
@@ -179,6 +185,10 @@ export function App() {
             <ExternalLink size={18} />
             Postings
           </a>
+          <a className="nav-item" href="#workflows">
+            <Clock3 size={18} />
+            Workflows
+          </a>
           <a className="nav-item" href="#workers">
             <Server size={18} />
             Workers
@@ -215,6 +225,7 @@ export function App() {
           <SummaryCard label="Succeeded" value={summary.succeeded} icon={<CheckCircle2 size={20} />} tone="succeeded" />
           <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
           <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
+          <SummaryCard label="Workflows" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
           <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
         </section>
 
@@ -238,6 +249,16 @@ export function App() {
                 </div>
               </div>
               <PostingsTable postings={postings} loading={loading} />
+            </section>
+
+            <section id="workflows" className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Scheduled Workflows</h2>
+                  <p>{workflows.length} recurring definitions</p>
+                </div>
+              </div>
+              <WorkflowsTable workflows={workflows} loading={loading} />
             </section>
 
             <section id="workers" className="panel">
@@ -542,6 +563,60 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
   );
 }
 
+function WorkflowsTable({ workflows, loading }: { workflows: Workflow[]; loading: boolean }) {
+  if (loading) {
+    return <EmptyState label="Loading workflows" />;
+  }
+  if (workflows.length === 0) {
+    return <EmptyState label="No scheduled workflows" />;
+  }
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Workflow</th>
+            <th>Job Type</th>
+            <th>Status</th>
+            <th>Interval</th>
+            <th>Next Run</th>
+            <th>Last Run</th>
+          </tr>
+        </thead>
+        <tbody>
+          {workflows.map((workflow) => (
+            <tr key={workflow.id}>
+              <td>
+                <strong>{workflow.name}</strong>
+                <span>{workflow.id.slice(0, 12)}</span>
+              </td>
+              <td>{workflow.job_type}</td>
+              <td>
+                <span className={`status-pill ${workflow.enabled ? "succeeded" : "canceled"}`}>
+                  {workflow.enabled ? "enabled" : "disabled"}
+                </span>
+              </td>
+              <td>{formatInterval(workflow.interval_seconds)}</td>
+              <td>{relativeTime(workflow.next_run_at)}</td>
+              <td>
+                {workflow.last_run_at ? (
+                  <>
+                    <strong>{relativeTime(workflow.last_run_at)}</strong>
+                    <span>{workflow.last_job_id ? workflow.last_job_id.slice(0, 12) : "-"}</span>
+                  </>
+                ) : (
+                  "-"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function JobDetail({ job }: { job: Job }) {
   const logs = job.logs ?? [];
 
@@ -615,4 +690,14 @@ function formatTime(date: Date) {
     minute: "2-digit",
     second: "2-digit"
   });
+}
+
+function formatInterval(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  return `${days}d`;
 }
