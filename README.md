@@ -69,6 +69,49 @@ The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the re
 
 Email report requests are supported as simulated `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs, but it does not send real email until an email provider is configured in a later step.
 
+## Scheduled Workflows
+
+Recurring workflows are stored separately from individual jobs. The scheduler polls enabled workflow definitions and creates a normal queued job whenever `next_run_at` is due. Each scheduled execution then uses the same worker pool, retries, logs, persistence, and dashboard views as manually submitted jobs.
+
+Create a scheduled workflow:
+
+```bash
+curl -X POST http://localhost:8080/v1/workflows \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "datadog-new-grad-monitor",
+    "job_type": "jobs.monitor.new_grad",
+    "max_attempts": 2,
+    "enabled": true,
+    "interval_seconds": 86400,
+    "payload": {
+      "sources": [
+        {
+          "type": "greenhouse",
+          "company": "Datadog",
+          "board_token": "datadog"
+        }
+      ],
+      "keywords": ["new grad", "university", "software engineer"],
+      "excluded_keywords": ["senior", "staff", "principal"],
+      "locations": ["new york", "nyc"],
+      "min_score": 20,
+      "notification_mode": "daily"
+    },
+    "metadata": {
+      "submitted_by": "dashboard"
+    }
+  }'
+```
+
+List scheduled workflows:
+
+```bash
+curl http://localhost:8080/v1/workflows
+```
+
+The scheduler poll interval defaults to 30 seconds and can be configured with `ORCH_SCHEDULER_POLL_SECONDS`.
+
 ## Product Direction
 
 Position the project as a distributed task orchestrator with natural-language job planning and production-style workflows:

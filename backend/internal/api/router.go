@@ -8,40 +8,45 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflows"
 )
 
 type Config struct {
-	Queue    jobs.Queue
-	Store    jobs.Store
-	Workers  workers.Registry
-	Logger   *slog.Logger
-	Static   string
-	Planner  llm.Planner
-	Postings postings.Store
+	Queue     jobs.Queue
+	Store     jobs.Store
+	Workers   workers.Registry
+	Logger    *slog.Logger
+	Static    string
+	Planner   llm.Planner
+	Postings  postings.Store
+	Workflows workflows.Store
 }
 
 type Server struct {
-	queue    jobs.Queue
-	store    jobs.Store
-	workers  workers.Registry
-	logger   *slog.Logger
-	planner  llm.Planner
-	postings postings.Store
+	queue     jobs.Queue
+	store     jobs.Store
+	workers   workers.Registry
+	logger    *slog.Logger
+	planner   llm.Planner
+	postings  postings.Store
+	workflows workflows.Store
 }
 
 func NewRouter(config Config) http.Handler {
 	server := &Server{
-		queue:    config.Queue,
-		store:    config.Store,
-		workers:  config.Workers,
-		logger:   config.Logger,
-		planner:  config.Planner,
-		postings: config.Postings,
+		queue:     config.Queue,
+		store:     config.Store,
+		workers:   config.Workers,
+		logger:    config.Logger,
+		planner:   config.Planner,
+		postings:  config.Postings,
+		workflows: config.Workflows,
 	}
 
 	mux := http.NewServeMux()
@@ -54,6 +59,9 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
 	mux.HandleFunc("GET /v1/postings", server.handleListPostings)
 	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
+	mux.HandleFunc("GET /v1/workflows", server.handleListWorkflows)
+	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
+	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	if config.Static != "" {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
@@ -71,6 +79,17 @@ type createJobRequest struct {
 
 type createNaturalJobRequest struct {
 	Prompt string `json:"prompt"`
+}
+
+type createWorkflowRequest struct {
+	Name            string            `json:"name"`
+	JobType         string            `json:"job_type"`
+	Payload         map[string]any    `json:"payload"`
+	Metadata        map[string]string `json:"metadata"`
+	MaxAttempts     int               `json:"max_attempts"`
+	Enabled         *bool             `json:"enabled"`
+	IntervalSeconds int               `json:"interval_seconds"`
+	NextRunAt       *time.Time        `json:"next_run_at"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +270,99 @@ func (s *Server) handleGetPosting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, posting)
+}
+
+func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusServiceUnavailable, "workflow store is not configured")
+		return
+	}
+
+	var req createWorkflowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.JobType = strings.TrimSpace(req.JobType)
+	if req.JobType == "" {
+		writeError(w, http.StatusBadRequest, "job_type is required")
+		return
+	}
+	if req.Name == "" {
+		req.Name = req.JobType
+	}
+	if req.MaxAttempts < 0 {
+		writeError(w, http.StatusBadRequest, "max_attempts cannot be negative")
+		return
+	}
+	if req.IntervalSeconds <= 0 {
+		writeError(w, http.StatusBadRequest, "interval_seconds must be positive")
+		return
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	workflow, err := s.workflows.Create(workflows.CreateWorkflowParams{
+		Name:            req.Name,
+		JobType:         req.JobType,
+		Payload:         req.Payload,
+		Metadata:        req.Metadata,
+		MaxAttempts:     req.MaxAttempts,
+		Enabled:         enabled,
+		IntervalSeconds: req.IntervalSeconds,
+		NextRunAt:       req.NextRunAt,
+	})
+	if err != nil {
+		s.logger.Error("failed to create workflow", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create workflow")
+		return
+	}
+
+	s.logger.Info("workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
+	writeJSON(w, http.StatusCreated, workflow)
+}
+
+func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	workflow, err := s.workflows.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, workflows.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		s.logger.Error("failed to get workflow", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflow)
+}
+
+func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"workflows": []*workflows.Workflow{}})
+		return
+	}
+
+	workflows, err := s.workflows.List()
+	if err != nil {
+		s.logger.Error("failed to list workflows", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list workflows")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workflows": workflows,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

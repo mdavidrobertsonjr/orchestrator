@@ -17,6 +17,7 @@ import (
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflows"
 )
 
 func TestCreateJobQueuesJob(t *testing.T) {
@@ -343,6 +344,125 @@ func TestGetAndListPostings(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflow(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := testRouterWithWorkflows(workflowStore)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/workflows", bytes.NewBufferString(`{
+		"name": "Datadog monitor",
+		"job_type": "jobs.monitor.new_grad",
+		"max_attempts": 2,
+		"enabled": true,
+		"interval_seconds": 3600,
+		"payload": {"min_score": 20},
+		"metadata": {"owner": "api-test"}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var workflow workflows.Workflow
+	if err := json.NewDecoder(rec.Body).Decode(&workflow); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if workflow.ID == "" {
+		t.Fatal("expected workflow ID")
+	}
+	if workflow.Name != "Datadog monitor" || workflow.JobType != "jobs.monitor.new_grad" {
+		t.Fatalf("unexpected workflow: %#v", workflow)
+	}
+	if !workflow.Enabled {
+		t.Fatal("expected workflow to be enabled")
+	}
+	if workflow.IntervalSeconds != 3600 {
+		t.Fatalf("expected interval 3600, got %d", workflow.IntervalSeconds)
+	}
+	if workflow.MaxAttempts != 2 {
+		t.Fatalf("expected max attempts 2, got %d", workflow.MaxAttempts)
+	}
+}
+
+func TestCreateWorkflowValidation(t *testing.T) {
+	router := testRouterWithWorkflows(workflows.NewMemoryStore())
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{`},
+		{name: "missing job type", body: `{"interval_seconds":60}`},
+		{name: "invalid interval", body: `{"job_type":"demo.sleep","interval_seconds":0}`},
+		{name: "negative attempts", body: `{"job_type":"demo.sleep","interval_seconds":60,"max_attempts":-1}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/workflows", bytes.NewBufferString(tt.body))
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d with body %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestGetAndListWorkflows(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := testRouterWithWorkflows(workflowStore)
+
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "Daily report",
+		JobType:         "report.email",
+		Enabled:         true,
+		IntervalSeconds: 86400,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/workflows/"+workflow.ID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, getRec.Code, getRec.Body.String())
+	}
+
+	var got workflows.Workflow
+	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.ID != workflow.ID {
+		t.Fatalf("expected workflow ID %q, got %q", workflow.ID, got.ID)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/v1/workflows", nil)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+
+	var list struct {
+		Workflows []workflows.Workflow `json:"workflows"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(list.Workflows) != 1 || list.Workflows[0].ID != workflow.ID {
+		t.Fatalf("expected list with workflow %q, got %#v", workflow.ID, list.Workflows)
+	}
+}
+
 func TestStaticDashboardServing(t *testing.T) {
 	staticDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
@@ -412,6 +532,16 @@ func testRouterWithStatic(staticDir string) http.Handler {
 		Workers: workers.NewMemoryRegistry(),
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Static:  staticDir,
+	})
+}
+
+func testRouterWithWorkflows(workflowStore workflows.Store) http.Handler {
+	return NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
 	})
 }
 

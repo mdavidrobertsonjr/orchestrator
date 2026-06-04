@@ -17,8 +17,10 @@ import (
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/monitor"
 	"orchestrator/backend/internal/postings"
+	"orchestrator/backend/internal/scheduler"
 	"orchestrator/backend/internal/worker"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflows"
 )
 
 func main() {
@@ -48,6 +50,13 @@ func main() {
 	}
 	defer closePostingStore()
 
+	workflowStore, closeWorkflowStore, err := buildWorkflowStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize workflow store", "error", err)
+		return
+	}
+	defer closeWorkflowStore()
+
 	monitorRunner := monitor.NewRunner(postingStore, nil)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
 
@@ -63,14 +72,20 @@ func main() {
 	}, queue, store, executor, registry, logger)
 	pool.Start(ctx)
 
+	scheduled := scheduler.New(scheduler.Config{
+		PollInterval: cfg.SchedulerPollInterval,
+	}, workflowStore, store, queue, logger)
+	scheduled.Start(ctx)
+
 	handler := api.NewRouter(api.Config{
-		Queue:    queue,
-		Store:    store,
-		Workers:  registry,
-		Logger:   logger,
-		Static:   cfg.StaticDir,
-		Planner:  planner,
-		Postings: postingStore,
+		Queue:     queue,
+		Store:     store,
+		Workers:   registry,
+		Logger:    logger,
+		Static:    cfg.StaticDir,
+		Planner:   planner,
+		Postings:  postingStore,
+		Workflows: workflowStore,
 	})
 
 	server := &http.Server{
@@ -104,26 +119,28 @@ func main() {
 }
 
 type config struct {
-	Addr          string
-	QueueSize     int
-	WorkerCount   int
-	DatabaseURL   string
-	AutoMigrateDB bool
-	StaticDir     string
-	OpenAIAPIKey  string
-	OpenAIModel   string
+	Addr                  string
+	QueueSize             int
+	WorkerCount           int
+	DatabaseURL           string
+	AutoMigrateDB         bool
+	StaticDir             string
+	OpenAIAPIKey          string
+	OpenAIModel           string
+	SchedulerPollInterval time.Duration
 }
 
 func configFromEnv() config {
 	return config{
-		Addr:          envString("ORCH_ADDR", ":8080"),
-		QueueSize:     envInt("ORCH_QUEUE_SIZE", 128),
-		WorkerCount:   envInt("ORCH_WORKERS", 2),
-		DatabaseURL:   os.Getenv("ORCH_DATABASE_URL"),
-		AutoMigrateDB: envBool("ORCH_AUTO_MIGRATE", true),
-		StaticDir:     envOptionalString("ORCH_STATIC_DIR", "../frontend/dist"),
-		OpenAIAPIKey:  os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:   envString("ORCH_OPENAI_MODEL", "gpt-5.4-nano"),
+		Addr:                  envString("ORCH_ADDR", ":8080"),
+		QueueSize:             envInt("ORCH_QUEUE_SIZE", 128),
+		WorkerCount:           envInt("ORCH_WORKERS", 2),
+		DatabaseURL:           os.Getenv("ORCH_DATABASE_URL"),
+		AutoMigrateDB:         envBool("ORCH_AUTO_MIGRATE", true),
+		StaticDir:             envOptionalString("ORCH_STATIC_DIR", "../frontend/dist"),
+		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:           envString("ORCH_OPENAI_MODEL", "gpt-5.4-nano"),
+		SchedulerPollInterval: time.Duration(envInt("ORCH_SCHEDULER_POLL_SECONDS", 30)) * time.Second,
 	}
 }
 
@@ -185,6 +202,32 @@ func buildPostingStore(ctx context.Context, cfg config, logger *slog.Logger) (po
 	return store, func() {
 		if err := store.Close(); err != nil {
 			logger.Error("failed to close postgres posting store", "error", err)
+		}
+	}, nil
+}
+
+func buildWorkflowStore(ctx context.Context, cfg config, logger *slog.Logger) (workflows.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory workflow store")
+		return workflows.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := workflows.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres workflow store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres workflow store", "error", err)
 		}
 	}, nil
 }
