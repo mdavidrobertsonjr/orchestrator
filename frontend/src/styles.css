@@ -210,7 +210,7 @@ h2 {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  grid-template-columns: repeat(8, minmax(100px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -258,7 +258,8 @@ h2 {
 .summary-card.succeeded .summary-icon,
 .summary-card.workers .summary-icon,
 .summary-card.postings .summary-icon,
-.summary-card.workflows .summary-icon {
+.summary-card.workflows .summary-icon,
+.summary-card.results .summary-icon {
   background: #e5f7ef;
   color: #137a53;
 }
@@ -373,6 +374,18 @@ td span {
 
 .table-action:hover {
   background: #f5f8fb;
+}
+
+.link-button {
+  background: transparent;
+  border: 0;
+  color: #1769aa;
+  font-weight: 700;
+  padding: 0;
+}
+
+.link-button:hover {
+  text-decoration: underline;
 }
 
 .run-list {
@@ -586,6 +599,33 @@ textarea {
   background: #fff4f4;
   color: #8f1d1d;
   padding: 10px 12px;
+}
+
+.results-block {
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.result-line {
+  border-top: 1px solid #edf1f5;
+  display: grid;
+  gap: 3px;
+  padding: 10px 0 0;
+}
+
+.result-line + .result-line {
+  margin-top: 10px;
+}
+
+.result-line strong,
+.result-line span {
+  display: block;
+}
+
+.result-line span {
+  color: #607080;
+  font-size: 13px;
 }
 
 .logs {

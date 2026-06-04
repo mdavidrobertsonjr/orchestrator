@@ -74,6 +74,17 @@ export type Workflow = {
   updated_at: string;
 };
 
+export type Result = {
+  id: string;
+  job_id?: string;
+  workflow_id?: string;
+  type: string;
+  summary?: string;
+  data?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type HealthStatus = {
   status: string;
 };
@@ -125,6 +136,11 @@ export async function fetchPostings(): Promise<Posting[]> {
 export async function fetchWorkflows(): Promise<Workflow[]> {
   const response = await request<{ workflows: Workflow[] }>("/v1/workflows");
   return response.workflows;
+}
+
+export async function fetchResults(): Promise<Result[]> {
+  const response = await request<{ results: Result[] }>("/v1/results");
+  return response.results;
 }
 
 export function fetchQueue(): Promise<QueueStatus> {

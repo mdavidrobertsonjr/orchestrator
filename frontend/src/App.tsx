@@ -26,12 +26,14 @@ import {
   fetchJobs,
   fetchPostings,
   fetchQueue,
+  fetchResults,
   fetchWorkflows,
   fetchWorkers,
   Job,
   JobStatus,
   Posting,
   QueueStatus,
+  Result,
   updateWorkflow,
   Worker,
   WorkerStatus,
@@ -94,6 +96,7 @@ const initialWorkflowForm: WorkflowFormState = {
 export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
@@ -119,26 +122,29 @@ export function App() {
       succeeded: jobs.filter((job) => job.status === "succeeded").length,
       failed: jobs.filter((job) => job.status === "failed").length,
       postings: postings.length,
+      results: results.length,
       workflows: workflows.length,
       activeWorkers: workers.filter((worker) => worker.status !== "stopped").length
     };
-  }, [jobs, postings, workflows, workers]);
+  }, [jobs, postings, results, workflows, workers]);
 
   async function refresh() {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows] = await Promise.all([
+      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows, nextResults] = await Promise.all([
         fetchHealth(),
         fetchJobs(),
         fetchWorkers(),
         fetchQueue(),
         fetchPostings(),
-        fetchWorkflows()
+        fetchWorkflows(),
+        fetchResults()
       ]);
       setJobs(nextJobs);
       setWorkers(nextWorkers);
       setQueue(nextQueue);
       setPostings(nextPostings);
       setWorkflows(nextWorkflows);
+      setResults(nextResults);
       setApiOnline(true);
       setLastUpdated(new Date());
       setError(null);
@@ -266,6 +272,10 @@ export function App() {
             <Clock3 size={18} />
             Workflows
           </a>
+          <a className="nav-item" href="#results">
+            <Terminal size={18} />
+            Results
+          </a>
           <a className="nav-item" href="#workers">
             <Server size={18} />
             Workers
@@ -303,6 +313,7 @@ export function App() {
           <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
           <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
           <SummaryCard label="Workflows" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
+          <SummaryCard label="Results" value={summary.results} icon={<Terminal size={20} />} tone="results" />
           <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
         </section>
 
@@ -352,6 +363,16 @@ export function App() {
                 </div>
               </div>
               <WorkersTable workers={workers} loading={loading} />
+            </section>
+
+            <section id="results" className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Recent Results</h2>
+                  <p>{results.length} structured outputs</p>
+                </div>
+              </div>
+              <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
             </section>
           </div>
 
@@ -558,7 +579,11 @@ export function App() {
                   <p>{selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}</p>
                 </div>
               </div>
-              {selectedJob ? <JobDetail job={selectedJob} /> : <EmptyState label="No jobs yet" />}
+              {selectedJob ? (
+                <JobDetail job={selectedJob} results={results.filter((result) => result.job_id === selectedJob.id)} />
+              ) : (
+                <EmptyState label="No jobs yet" />
+              )}
             </section>
           </aside>
         </section>
@@ -833,7 +858,65 @@ function WorkflowsTable({
   );
 }
 
-function JobDetail({ job }: { job: Job }) {
+function ResultsTable({
+  results,
+  loading,
+  onSelectJob
+}: {
+  results: Result[];
+  loading: boolean;
+  onSelectJob: (id: string) => void;
+}) {
+  if (loading) {
+    return <EmptyState label="Loading results" />;
+  }
+  if (results.length === 0) {
+    return <EmptyState label="No results recorded" />;
+  }
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Result</th>
+            <th>Workflow</th>
+            <th>Job</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {results.slice(0, 12).map((result) => (
+            <tr key={result.id}>
+              <td>
+                <strong>{result.type}</strong>
+                <span>{result.summary || result.id.slice(0, 12)}</span>
+              </td>
+              <td>{result.workflow_id ? result.workflow_id.slice(0, 12) : "-"}</td>
+              <td>
+                {result.job_id ? (
+                  <button
+                    className="link-button"
+                    type="button"
+                    onClick={() => onSelectJob(result.job_id as string)}
+                    title="Open job detail"
+                  >
+                    {result.job_id.slice(0, 12)}
+                  </button>
+                ) : (
+                  "-"
+                )}
+              </td>
+              <td>{relativeTime(result.created_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobDetail({ job, results }: { job: Job; results: Result[] }) {
   const logs = job.logs ?? [];
 
   return (
@@ -856,6 +939,21 @@ function JobDetail({ job }: { job: Job }) {
       </div>
 
       {job.error && <div className="error-box">{job.error}</div>}
+
+      {results.length > 0 && (
+        <div className="results-block">
+          <div className="logs-title">
+            <Terminal size={16} />
+            Results
+          </div>
+          {results.slice(0, 3).map((result) => (
+            <div className="result-line" key={result.id}>
+              <strong>{result.type}</strong>
+              <span>{result.summary || "No summary"}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="logs">
         <div className="logs-title">
