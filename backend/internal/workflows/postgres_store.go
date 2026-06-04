@@ -169,6 +169,27 @@ RETURNING id, name, job_type, payload, metadata, max_attempts, enabled, interval
 	return workflow, nil
 }
 
+func (s *PostgresStore) SetEnabled(id string, enabled bool) (*Workflow, error) {
+	now := time.Now().UTC()
+	ctx, cancel := s.context()
+	defer cancel()
+
+	workflow, err := scanWorkflow(s.db.QueryRowContext(ctx, `
+UPDATE workflows
+SET enabled = $2, updated_at = $3
+WHERE id = $1
+RETURNING id, name, job_type, payload, metadata, max_attempts, enabled, interval_seconds,
+	next_run_at, last_run_at, last_job_id, created_at, updated_at
+`, id, enabled, now))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return workflow, nil
+}
+
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), postgresStoreTimeout)
 }

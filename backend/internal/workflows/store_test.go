@@ -98,6 +98,30 @@ func TestMemoryStoreMarkDispatched(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreSetEnabled(t *testing.T) {
+	store := NewMemoryStore()
+	workflow, err := store.Create(CreateWorkflowParams{Name: "due", JobType: "demo.sleep", Enabled: true, IntervalSeconds: 60})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	updated, err := store.SetEnabled(workflow.ID, false)
+	if err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	if updated.Enabled {
+		t.Fatal("expected workflow to be disabled")
+	}
+
+	updated, err = store.SetEnabled(workflow.ID, true)
+	if err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	if !updated.Enabled {
+		t.Fatal("expected workflow to be enabled")
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 
@@ -109,5 +133,10 @@ func TestMemoryStoreNotFound(t *testing.T) {
 	_, err = store.MarkDispatched("missing", "job-1", time.Now(), time.Now())
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound from mark dispatched, got %v", err)
+	}
+
+	_, err = store.SetEnabled("missing", true)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound from set enabled, got %v", err)
 	}
 }

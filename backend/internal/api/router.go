@@ -62,6 +62,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/workflows", server.handleListWorkflows)
 	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
+	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
 	if config.Static != "" {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
@@ -90,6 +91,10 @@ type createWorkflowRequest struct {
 	Enabled         *bool             `json:"enabled"`
 	IntervalSeconds int               `json:"interval_seconds"`
 	NextRunAt       *time.Time        `json:"next_run_at"`
+}
+
+type updateWorkflowRequest struct {
+	Enabled *bool `json:"enabled"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -341,6 +346,36 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logger.Error("failed to get workflow", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workflow)
+}
+
+func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	var req updateWorkflowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.Enabled == nil {
+		writeError(w, http.StatusBadRequest, "enabled is required")
+		return
+	}
+
+	workflow, err := s.workflows.SetEnabled(r.PathValue("id"), *req.Enabled)
+	if err != nil {
+		if errors.Is(err, workflows.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		s.logger.Error("failed to update workflow", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
 

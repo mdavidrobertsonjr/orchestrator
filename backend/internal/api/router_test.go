@@ -463,6 +463,62 @@ func TestGetAndListWorkflows(t *testing.T) {
 	}
 }
 
+func TestUpdateWorkflowEnabled(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := testRouterWithWorkflows(workflowStore)
+
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "Daily report",
+		JobType:         "report.email",
+		Enabled:         true,
+		IntervalSeconds: 86400,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/v1/workflows/"+workflow.ID, bytes.NewBufferString(`{"enabled":false}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var updated workflows.Workflow
+	if err := json.NewDecoder(rec.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if updated.Enabled {
+		t.Fatal("expected disabled workflow")
+	}
+}
+
+func TestUpdateWorkflowValidation(t *testing.T) {
+	router := testRouterWithWorkflows(workflows.NewMemoryStore())
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{`},
+		{name: "missing enabled", body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, "/v1/workflows/missing", bytes.NewBufferString(tt.body))
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d with body %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestStaticDashboardServing(t *testing.T) {
 	staticDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
