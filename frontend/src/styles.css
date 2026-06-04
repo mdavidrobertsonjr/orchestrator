@@ -375,6 +375,33 @@ td span {
   background: #f5f8fb;
 }
 
+.run-list {
+  display: grid;
+  gap: 6px;
+}
+
+.run-link {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  color: #243241;
+  display: inline-grid;
+  gap: 8px;
+  grid-template-columns: auto auto auto;
+  min-height: 34px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.run-link:hover {
+  background: #f5f8fb;
+}
+
+.run-link span {
+  margin-top: 0;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

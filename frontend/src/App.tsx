@@ -335,7 +335,13 @@ export function App() {
                   <p>{workflows.length} recurring definitions</p>
                 </div>
               </div>
-              <WorkflowsTable workflows={workflows} loading={loading} onToggle={(workflow) => void handleWorkflowToggle(workflow)} />
+              <WorkflowsTable
+                workflows={workflows}
+                jobs={jobs}
+                loading={loading}
+                onToggle={(workflow) => void handleWorkflowToggle(workflow)}
+                onSelectJob={setSelectedJobID}
+              />
             </section>
 
             <section id="workers" className="panel">
@@ -727,12 +733,16 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
 
 function WorkflowsTable({
   workflows,
+  jobs,
   loading,
-  onToggle
+  onToggle,
+  onSelectJob
 }: {
   workflows: Workflow[];
+  jobs: Job[];
   loading: boolean;
   onToggle: (workflow: Workflow) => void;
+  onSelectJob: (id: string) => void;
 }) {
   if (loading) {
     return <EmptyState label="Loading workflows" />;
@@ -756,44 +766,67 @@ function WorkflowsTable({
           </tr>
         </thead>
         <tbody>
-          {workflows.map((workflow) => (
-            <tr key={workflow.id}>
-              <td>
-                <strong>{workflow.name}</strong>
-                <span>{workflow.id.slice(0, 12)}</span>
-              </td>
-              <td>{workflow.job_type}</td>
-              <td>
-                <span className={`status-pill ${workflow.enabled ? "succeeded" : "canceled"}`}>
-                  {workflow.enabled ? "enabled" : "disabled"}
-                </span>
-              </td>
-              <td>{formatInterval(workflow.interval_seconds)}</td>
-              <td>{relativeTime(workflow.next_run_at)}</td>
-              <td>
-                {workflow.last_run_at ? (
-                  <>
-                    <strong>{relativeTime(workflow.last_run_at)}</strong>
-                    <span>{workflow.last_job_id ? workflow.last_job_id.slice(0, 12) : "-"}</span>
-                  </>
-                ) : (
-                  "-"
-                )}
-              </td>
-              <td>
-                <button
-                  className="table-action"
-                  type="button"
-                  onClick={() => onToggle(workflow)}
-                  aria-label={workflow.enabled ? "Pause workflow" : "Resume workflow"}
-                  title={workflow.enabled ? "Pause workflow" : "Resume workflow"}
-                >
-                  {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
-                  {workflow.enabled ? "Pause" : "Resume"}
-                </button>
-              </td>
-            </tr>
-          ))}
+          {workflows.map((workflow) => {
+            const runs = jobs
+              .filter((job) => job.metadata?.workflow_id === workflow.id)
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+              .slice(0, 3);
+
+            return (
+              <tr key={workflow.id}>
+                <td>
+                  <strong>{workflow.name}</strong>
+                  <span>{workflow.id.slice(0, 12)}</span>
+                </td>
+                <td>{workflow.job_type}</td>
+                <td>
+                  <span className={`status-pill ${workflow.enabled ? "succeeded" : "canceled"}`}>
+                    {workflow.enabled ? "enabled" : "disabled"}
+                  </span>
+                </td>
+                <td>{formatInterval(workflow.interval_seconds)}</td>
+                <td>{relativeTime(workflow.next_run_at)}</td>
+                <td>
+                  {runs.length > 0 ? (
+                    <div className="run-list">
+                      {runs.map((run) => (
+                        <button
+                          className="run-link"
+                          type="button"
+                          key={run.id}
+                          onClick={() => onSelectJob(run.id)}
+                          title="Open scheduled job detail"
+                        >
+                          <StatusPill status={run.status} />
+                          <span>{relativeTime(run.created_at)}</span>
+                          <span>{run.id.slice(0, 8)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : workflow.last_run_at ? (
+                    <>
+                      <strong>{relativeTime(workflow.last_run_at)}</strong>
+                      <span>{workflow.last_job_id ? workflow.last_job_id.slice(0, 12) : "-"}</span>
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td>
+                  <button
+                    className="table-action"
+                    type="button"
+                    onClick={() => onToggle(workflow)}
+                    aria-label={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                    title={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                  >
+                    {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
+                    {workflow.enabled ? "Pause" : "Resume"}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
