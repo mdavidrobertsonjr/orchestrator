@@ -666,10 +666,15 @@ func testRouterWithResults(resultStore results.Store) http.Handler {
 }
 
 type fakePlanner struct {
-	plan *llm.JobPlan
-	err  error
+	plan         *llm.JobPlan
+	workflowPlan *llm.WorkflowPlan
+	err          error
 }
 
 func (p fakePlanner) Plan(context.Context, string) (*llm.JobPlan, error) {
 	return p.plan, p.err
+}
+
+func (p fakePlanner) PlanWorkflow(context.Context, string) (*llm.WorkflowPlan, error) {
+	return p.workflowPlan, p.err
 }
