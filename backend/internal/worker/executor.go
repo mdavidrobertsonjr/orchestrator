@@ -11,6 +11,7 @@ import (
 	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/monitor"
+	"orchestrator/backend/internal/results"
 )
 
 type Executor interface {
@@ -20,10 +21,11 @@ type Executor interface {
 type SimulatedExecutor struct {
 	logger        *slog.Logger
 	monitorRunner *monitor.Runner
+	results       results.Store
 }
 
-func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner) *SimulatedExecutor {
-	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner}
+func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, resultStore results.Store) *SimulatedExecutor {
+	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner, results: resultStore}
 }
 
 func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
@@ -31,7 +33,11 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 
 	logf(fmt.Sprintf("executor received %q job", job.Type))
 	if job.Type == monitor.NewGradJobType {
-		if _, err := e.monitorRunner.Run(ctx, job.Payload, logf); err != nil {
+		result, err := e.monitorRunner.Run(ctx, job.Payload, logf)
+		if err != nil {
+			return err
+		}
+		if err := e.recordMonitorResult(job, result, logf); err != nil {
 			return err
 		}
 	} else if job.Type == "report.email" {
@@ -55,6 +61,36 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	}
 
 	logf("executor completed work")
+	return nil
+}
+
+func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.Result, logf func(string)) error {
+	if e.results == nil || result == nil {
+		return nil
+	}
+
+	workflowID := ""
+	if job.Metadata != nil {
+		workflowID = job.Metadata["workflow_id"]
+	}
+
+	created, err := e.results.Create(results.CreateResultParams{
+		JobID:      job.ID,
+		WorkflowID: workflowID,
+		Type:       "monitor.summary",
+		Summary:    fmt.Sprintf("scanned %d postings, matched %d, new %d", result.Scanned, result.Matched, result.Created),
+		Data: map[string]any{
+			"scanned": result.Scanned,
+			"matched": result.Matched,
+			"created": result.Created,
+			"updated": result.Updated,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	logf("recorded monitor result: " + created.ID)
 	return nil
 }
 

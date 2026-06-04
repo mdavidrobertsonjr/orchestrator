@@ -8,10 +8,11 @@ import (
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/monitor"
 	"orchestrator/backend/internal/postings"
+	"orchestrator/backend/internal/results"
 )
 
 func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
-	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
 	job := &jobs.Job{
 		Type: "report.email",
 		Payload: map[string]any{
@@ -48,11 +49,14 @@ func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
 
 func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 	postingStore := postings.NewMemoryStore()
+	resultStore := results.NewMemoryStore()
 	executor := NewSimulatedExecutor(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		monitor.NewRunner(postingStore, nil),
+		resultStore,
 	)
 	job := &jobs.Job{
+		ID:   "job-1",
 		Type: monitor.NewGradJobType,
 		Payload: map[string]any{
 			"duration_ms": float64(100),
@@ -76,6 +80,7 @@ func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 			"locations": []string{"new york"},
 			"min_score": float64(1),
 		},
+		Metadata: map[string]string{"workflow_id": "workflow-1"},
 	}
 
 	var logs []string
@@ -94,6 +99,20 @@ func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 	}
 	if !containsLog(logs, "monitor completed: scanned=1 matched=1 new=1 updated=0") {
 		t.Fatalf("expected monitor completion log, got %#v", logs)
+	}
+
+	results, err := resultStore.ListByJob(job.ID)
+	if err != nil {
+		t.Fatalf("list results: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one monitor result, got %d", len(results))
+	}
+	if results[0].WorkflowID != "workflow-1" {
+		t.Fatalf("expected workflow result linkage, got %#v", results[0])
+	}
+	if results[0].Type != "monitor.summary" {
+		t.Fatalf("expected monitor summary result, got %#v", results[0])
 	}
 }
 

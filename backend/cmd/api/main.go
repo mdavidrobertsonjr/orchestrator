@@ -66,7 +66,7 @@ func main() {
 	defer closeResultStore()
 
 	monitorRunner := monitor.NewRunner(postingStore, nil)
-	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
+	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore)
 
 	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
 		logger.Error("failed to hydrate pending jobs", "error", err)
