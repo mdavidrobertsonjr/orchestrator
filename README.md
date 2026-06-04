@@ -213,6 +213,16 @@ Example Greenhouse monitor payload:
 }
 ```
 
+Lever sources are also supported:
+
+```json
+{
+  "type": "lever",
+  "company": "ExampleCo",
+  "account_name": "exampleco"
+}
+```
+
 ## Checks
 
 Run backend tests and build the frontend:

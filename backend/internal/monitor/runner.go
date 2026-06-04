@@ -26,11 +26,12 @@ type Source interface {
 }
 
 type SourceConfig struct {
-	Type       string      `json:"type"`
-	Name       string      `json:"name"`
-	Company    string      `json:"company"`
-	BoardToken string      `json:"board_token"`
-	Postings   []Candidate `json:"postings"`
+	Type        string      `json:"type"`
+	Name        string      `json:"name"`
+	Company     string      `json:"company"`
+	BoardToken  string      `json:"board_token"`
+	AccountName string      `json:"account_name"`
+	Postings    []Candidate `json:"postings"`
 }
 
 type Candidate struct {
@@ -70,6 +71,9 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	}
 	if _, ok := sources["greenhouse"]; !ok {
 		sources["greenhouse"] = NewGreenhouseSource(nil)
+	}
+	if _, ok := sources["lever"]; !ok {
+		sources["lever"] = NewLeverSource(nil)
 	}
 	return &Runner{store: store, sources: sources}
 }
@@ -359,4 +363,114 @@ func firstOfficeLocation(offices []greenhouseNamedResource) string {
 		}
 	}
 	return ""
+}
+
+type LeverSource struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewLeverSource(client *http.Client) *LeverSource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &LeverSource{
+		client:  client,
+		baseURL: "https://api.lever.co",
+	}
+}
+
+func (s *LeverSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	accountName := strings.TrimSpace(config.AccountName)
+	if accountName == "" {
+		accountName = strings.TrimSpace(config.Name)
+	}
+	if accountName == "" {
+		return nil, errors.New("lever source requires account_name")
+	}
+
+	endpoint, err := url.JoinPath(strings.TrimRight(s.baseURL, "/"), "v0", "postings", accountName)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	query.Set("mode", "json")
+	parsed.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("lever returned status %d", resp.StatusCode)
+	}
+
+	var postings []leverPosting
+	if err := json.NewDecoder(resp.Body).Decode(&postings); err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, len(postings))
+	for _, posting := range postings {
+		metadata := map[string]string{
+			"account_name": accountName,
+		}
+		if posting.Categories.Team != "" {
+			metadata["team"] = posting.Categories.Team
+		}
+		if posting.Categories.Department != "" {
+			metadata["department"] = posting.Categories.Department
+		}
+		if posting.Categories.Commitment != "" {
+			metadata["commitment"] = posting.Categories.Commitment
+		}
+
+		candidates = append(candidates, Candidate{
+			Company:  firstNonEmpty(config.Company, config.Name, accountName),
+			Title:    posting.Text,
+			URL:      firstNonEmpty(posting.HostedURL, posting.ApplyURL),
+			Location: posting.Categories.Location,
+			Source:   "lever",
+			SourceID: posting.ID,
+			PostedAt: leverPostedAt(posting.CreatedAt),
+			Metadata: metadata,
+		})
+	}
+
+	return candidates, nil
+}
+
+type leverPosting struct {
+	ID         string          `json:"id"`
+	Text       string          `json:"text"`
+	HostedURL  string          `json:"hostedUrl"`
+	ApplyURL   string          `json:"applyUrl"`
+	Categories leverCategories `json:"categories"`
+	CreatedAt  int64           `json:"createdAt"`
+}
+
+type leverCategories struct {
+	Location   string `json:"location"`
+	Team       string `json:"team"`
+	Department string `json:"department"`
+	Commitment string `json:"commitment"`
+}
+
+func leverPostedAt(createdAt int64) *time.Time {
+	if createdAt <= 0 {
+		return nil
+	}
+	postedAt := time.UnixMilli(createdAt).UTC()
+	return &postedAt
 }
