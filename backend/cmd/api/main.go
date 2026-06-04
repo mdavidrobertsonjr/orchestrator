@@ -17,6 +17,7 @@ import (
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/monitor"
 	"orchestrator/backend/internal/postings"
+	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/scheduler"
 	"orchestrator/backend/internal/worker"
 	"orchestrator/backend/internal/workers"
@@ -57,6 +58,13 @@ func main() {
 	}
 	defer closeWorkflowStore()
 
+	resultStore, closeResultStore, err := buildResultStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize result store", "error", err)
+		return
+	}
+	defer closeResultStore()
+
 	monitorRunner := monitor.NewRunner(postingStore, nil)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner)
 
@@ -86,6 +94,7 @@ func main() {
 		Planner:   planner,
 		Postings:  postingStore,
 		Workflows: workflowStore,
+		Results:   resultStore,
 	})
 
 	server := &http.Server{
@@ -228,6 +237,32 @@ func buildWorkflowStore(ctx context.Context, cfg config, logger *slog.Logger) (w
 	return store, func() {
 		if err := store.Close(); err != nil {
 			logger.Error("failed to close postgres workflow store", "error", err)
+		}
+	}, nil
+}
+
+func buildResultStore(ctx context.Context, cfg config, logger *slog.Logger) (results.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory result store")
+		return results.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := results.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres result store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres result store", "error", err)
 		}
 	}, nil
 }

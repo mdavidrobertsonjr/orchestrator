@@ -13,6 +13,7 @@ import (
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/postings"
+	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/workers"
 	"orchestrator/backend/internal/workflows"
 )
@@ -26,6 +27,7 @@ type Config struct {
 	Planner   llm.Planner
 	Postings  postings.Store
 	Workflows workflows.Store
+	Results   results.Store
 }
 
 type Server struct {
@@ -36,6 +38,7 @@ type Server struct {
 	planner   llm.Planner
 	postings  postings.Store
 	workflows workflows.Store
+	results   results.Store
 }
 
 func NewRouter(config Config) http.Handler {
@@ -47,6 +50,7 @@ func NewRouter(config Config) http.Handler {
 		planner:   config.Planner,
 		postings:  config.Postings,
 		workflows: config.Workflows,
+		results:   config.Results,
 	}
 
 	mux := http.NewServeMux()
@@ -63,6 +67,8 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
+	mux.HandleFunc("GET /v1/results", server.handleListResults)
+	mux.HandleFunc("GET /v1/results/{id}", server.handleGetResult)
 	if config.Static != "" {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
@@ -398,6 +404,54 @@ func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workflows": workflows,
 	})
+}
+
+func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
+	if s.results == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"results": []*results.Result{}})
+		return
+	}
+
+	var (
+		resultsList []*results.Result
+		err         error
+	)
+	if jobID := strings.TrimSpace(r.URL.Query().Get("job_id")); jobID != "" {
+		resultsList, err = s.results.ListByJob(jobID)
+	} else if workflowID := strings.TrimSpace(r.URL.Query().Get("workflow_id")); workflowID != "" {
+		resultsList, err = s.results.ListByWorkflow(workflowID)
+	} else {
+		resultsList, err = s.results.List()
+	}
+	if err != nil {
+		s.logger.Error("failed to list results", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list results")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results": resultsList,
+	})
+}
+
+func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
+	if s.results == nil {
+		writeError(w, http.StatusNotFound, "result not found")
+		return
+	}
+
+	result, err := s.results.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, results.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "result not found")
+			return
+		}
+		s.logger.Error("failed to get result", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get result")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

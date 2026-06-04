@@ -16,6 +16,7 @@ import (
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/postings"
+	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/workers"
 	"orchestrator/backend/internal/workflows"
 )
@@ -519,6 +520,59 @@ func TestUpdateWorkflowValidation(t *testing.T) {
 	}
 }
 
+func TestGetAndListResults(t *testing.T) {
+	resultStore := results.NewMemoryStore()
+	router := testRouterWithResults(resultStore)
+
+	result, err := resultStore.Create(results.CreateResultParams{
+		JobID:      "job-1",
+		WorkflowID: "workflow-1",
+		Type:       "monitor.summary",
+		Summary:    "1 new match",
+		Data:       map[string]any{"created": float64(1)},
+	})
+	if err != nil {
+		t.Fatalf("create result: %v", err)
+	}
+	if _, err := resultStore.Create(results.CreateResultParams{JobID: "job-2", WorkflowID: "workflow-2", Type: "monitor.summary"}); err != nil {
+		t.Fatalf("create second result: %v", err)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/results/"+result.ID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, getRec.Code, getRec.Body.String())
+	}
+
+	var got results.Result
+	if err := json.NewDecoder(getRec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.ID != result.ID {
+		t.Fatalf("expected result ID %q, got %q", result.ID, got.ID)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/v1/results?workflow_id=workflow-1", nil)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+
+	var list struct {
+		Results []results.Result `json:"results"`
+	}
+	if err := json.NewDecoder(listRec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(list.Results) != 1 || list.Results[0].ID != result.ID {
+		t.Fatalf("expected filtered result %q, got %#v", result.ID, list.Results)
+	}
+}
+
 func TestStaticDashboardServing(t *testing.T) {
 	staticDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
@@ -598,6 +652,16 @@ func testRouterWithWorkflows(workflowStore workflows.Store) http.Handler {
 		Workers:   workers.NewMemoryRegistry(),
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Workflows: workflowStore,
+	})
+}
+
+func testRouterWithResults(resultStore results.Store) http.Handler {
+	return NewRouter(Config{
+		Queue:   jobs.NewMemoryQueue(2),
+		Store:   jobs.NewMemoryStore(),
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Results: resultStore,
 	})
 }
 
