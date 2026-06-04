@@ -73,6 +73,14 @@ Email report requests are supported as simulated `report.email` jobs. The worker
 
 Recurring workflows are stored separately from individual jobs. The scheduler polls enabled workflow definitions and creates a normal queued job whenever `next_run_at` is due. Each scheduled execution then uses the same worker pool, retries, logs, persistence, and dashboard views as manually submitted jobs.
 
+When `OPENAI_API_KEY` is configured, recurring workflows can also be created from English through the dashboard's Describe Workflow form or the API:
+
+```bash
+curl -X POST http://localhost:8080/v1/workflows/natural \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"Monitor Datadog new-grad software engineering roles in NYC every day"}'
+```
+
 Create a scheduled workflow:
 
 ```bash
