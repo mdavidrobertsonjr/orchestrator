@@ -103,6 +103,10 @@ export type CreateWorkflowInput = {
   metadata: Record<string, string>;
 };
 
+export type UpdateWorkflowInput = {
+  enabled: boolean;
+};
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await request<{ jobs: Job[] }>("/v1/jobs");
   return response.jobs;
@@ -154,6 +158,16 @@ export function createNaturalJob(input: CreateNaturalJobInput): Promise<Job> {
 export function createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
   return request<Workflow>("/v1/workflows", {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateWorkflow(id: string, input: UpdateWorkflowInput): Promise<Workflow> {
+  return request<Workflow>(`/v1/workflows/${id}`, {
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json"
     },

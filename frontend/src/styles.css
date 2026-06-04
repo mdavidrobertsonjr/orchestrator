@@ -359,6 +359,22 @@ td span {
   color: #1769aa;
 }
 
+.table-action {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfd9e3;
+  border-radius: 8px;
+  color: #243241;
+  display: inline-flex;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.table-action:hover {
+  background: #f5f8fb;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;

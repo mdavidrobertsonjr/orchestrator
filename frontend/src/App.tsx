@@ -9,11 +9,13 @@ import {
   ExternalLink,
   LayoutDashboard,
   ListChecks,
+  Pause,
   Play,
   RefreshCw,
   Server,
   Send,
   Terminal,
+  ToggleRight,
   XCircle
 } from "lucide-react";
 import {
@@ -30,6 +32,7 @@ import {
   JobStatus,
   Posting,
   QueueStatus,
+  updateWorkflow,
   Worker,
   WorkerStatus,
   Workflow
@@ -222,6 +225,17 @@ export function App() {
     }
   }
 
+  async function handleWorkflowToggle(workflow: Workflow) {
+    setError(null);
+
+    try {
+      await updateWorkflow(workflow.id, { enabled: !workflow.enabled });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to update workflow");
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -321,7 +335,7 @@ export function App() {
                   <p>{workflows.length} recurring definitions</p>
                 </div>
               </div>
-              <WorkflowsTable workflows={workflows} loading={loading} />
+              <WorkflowsTable workflows={workflows} loading={loading} onToggle={(workflow) => void handleWorkflowToggle(workflow)} />
             </section>
 
             <section id="workers" className="panel">
@@ -711,7 +725,15 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
   );
 }
 
-function WorkflowsTable({ workflows, loading }: { workflows: Workflow[]; loading: boolean }) {
+function WorkflowsTable({
+  workflows,
+  loading,
+  onToggle
+}: {
+  workflows: Workflow[];
+  loading: boolean;
+  onToggle: (workflow: Workflow) => void;
+}) {
   if (loading) {
     return <EmptyState label="Loading workflows" />;
   }
@@ -730,6 +752,7 @@ function WorkflowsTable({ workflows, loading }: { workflows: Workflow[]; loading
             <th>Interval</th>
             <th>Next Run</th>
             <th>Last Run</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -756,6 +779,18 @@ function WorkflowsTable({ workflows, loading }: { workflows: Workflow[]; loading
                 ) : (
                   "-"
                 )}
+              </td>
+              <td>
+                <button
+                  className="table-action"
+                  type="button"
+                  onClick={() => onToggle(workflow)}
+                  aria-label={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                  title={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                >
+                  {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
+                  {workflow.enabled ? "Pause" : "Resume"}
+                </button>
               </td>
             </tr>
           ))}
