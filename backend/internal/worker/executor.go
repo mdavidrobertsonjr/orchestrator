@@ -51,7 +51,7 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 		if sender == nil {
 			sender = email.NewSimulatedSender(logf)
 		}
-		if err := sendEmailReport(ctx, job.Payload, sender, logf); err != nil {
+		if err := e.sendEmailReport(ctx, job.Payload, sender, logf); err != nil {
 			return err
 		}
 	}
@@ -176,7 +176,7 @@ func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.R
 	return nil
 }
 
-func sendEmailReport(ctx context.Context, payload map[string]any, sender email.Sender, logf func(string)) error {
+func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, payload map[string]any, sender email.Sender, logf func(string)) error {
 	report, ok := payload["report"]
 	if !ok {
 		logf("email report payload missing; using default report")
@@ -203,15 +203,58 @@ func sendEmailReport(ctx context.Context, payload map[string]any, sender email.S
 		return err
 	}
 
+	body := reportBody(parsed.Kind)
+	if parsed.Kind == "monitor_digest" {
+		body = e.monitorDigestBody(logf)
+	}
+
 	return sender.Send(ctx, email.Message{
 		Recipients: parsed.Recipients,
 		Subject:    parsed.Subject,
-		Body:       reportBody(parsed.Kind),
+		Body:       body,
 		Metadata: map[string]string{
 			"kind":     parsed.Kind,
 			"schedule": parsed.Schedule,
 		},
 	})
+}
+
+func (e *SimulatedExecutor) monitorDigestBody(logf func(string)) string {
+	if e.results == nil {
+		logf("monitor digest requested but result store is not configured")
+		return "Monitor digest\n\nNo result store is configured.\n"
+	}
+
+	stored, err := e.results.List()
+	if err != nil {
+		logf("monitor digest could not list results: " + err.Error())
+		return "Monitor digest\n\nFailed to load monitor results.\n"
+	}
+
+	var out strings.Builder
+	out.WriteString("Monitor digest\n\n")
+	count := 0
+	for _, result := range stored {
+		if result.Type != "monitor.summary" {
+			continue
+		}
+		count++
+		out.WriteString("- ")
+		out.WriteString(result.Summary)
+		if result.WorkflowID != "" {
+			out.WriteString(" (workflow ")
+			out.WriteString(result.WorkflowID)
+			out.WriteString(")")
+		}
+		out.WriteString("\n")
+		if count == 10 {
+			break
+		}
+	}
+	if count == 0 {
+		out.WriteString("No monitor results recorded yet.\n")
+	}
+	return out.String()
 }
 
 func reportBody(kind string) string {

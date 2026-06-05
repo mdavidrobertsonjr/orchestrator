@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"orchestrator/backend/internal/email"
@@ -174,6 +175,48 @@ func TestSimulatedExecutorSendsImmediateMonitorAlert(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Data["alert_sent"] != true {
 		t.Fatalf("expected alert_sent result data, got %#v", results)
+	}
+}
+
+func TestSimulatedExecutorSendsMonitorDigestReport(t *testing.T) {
+	resultStore := results.NewMemoryStore()
+	if _, err := resultStore.Create(results.CreateResultParams{
+		JobID:      "job-1",
+		WorkflowID: "workflow-1",
+		Type:       "monitor.summary",
+		Summary:    "scanned 2 postings, matched 1, new 1",
+	}); err != nil {
+		t.Fatalf("create result: %v", err)
+	}
+
+	sender := &recordingSender{}
+	executor := NewSimulatedExecutor(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+		resultStore,
+		sender,
+	)
+	job := &jobs.Job{
+		Type: "report.email",
+		Payload: map[string]any{
+			"duration_ms": float64(100),
+			"report": map[string]any{
+				"recipients": []any{"me@example.com"},
+				"subject":    "Daily monitor digest",
+				"kind":       "monitor_digest",
+				"schedule":   "daily",
+			},
+		},
+	}
+
+	if err := executor.Execute(t.Context(), job, func(string) {}); err != nil {
+		t.Fatalf("execute digest report: %v", err)
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected one digest email, got %d", len(sender.messages))
+	}
+	if !strings.Contains(sender.messages[0].Body, "scanned 2 postings, matched 1, new 1") {
+		t.Fatalf("expected digest body to include monitor result, got %q", sender.messages[0].Body)
 	}
 }
 
