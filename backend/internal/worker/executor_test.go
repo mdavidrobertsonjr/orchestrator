@@ -12,7 +12,7 @@ import (
 )
 
 func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
-	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil)
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, nil)
 	job := &jobs.Job{
 		Type: "report.email",
 		Payload: map[string]any{
@@ -54,6 +54,7 @@ func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		monitor.NewRunner(postingStore, nil),
 		resultStore,
+		nil,
 	)
 	job := &jobs.Job{
 		ID:   "job-1",

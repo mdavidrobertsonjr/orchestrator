@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"orchestrator/backend/internal/email"
@@ -22,10 +23,11 @@ type SimulatedExecutor struct {
 	logger        *slog.Logger
 	monitorRunner *monitor.Runner
 	results       results.Store
+	emailSender   email.Sender
 }
 
-func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, resultStore results.Store) *SimulatedExecutor {
-	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner, results: resultStore}
+func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, resultStore results.Store, emailSender email.Sender) *SimulatedExecutor {
+	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner, results: resultStore, emailSender: emailSender}
 }
 
 func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
@@ -41,7 +43,11 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 			return err
 		}
 	} else if job.Type == "report.email" {
-		if err := sendEmailReport(ctx, job.Payload, email.NewSimulatedSender(logf), logf); err != nil {
+		sender := e.emailSender
+		if sender == nil {
+			sender = email.NewSimulatedSender(logf)
+		}
+		if err := sendEmailReport(ctx, job.Payload, sender, logf); err != nil {
 			return err
 		}
 	}
@@ -124,12 +130,20 @@ func sendEmailReport(ctx context.Context, payload map[string]any, sender email.S
 	return sender.Send(ctx, email.Message{
 		Recipients: parsed.Recipients,
 		Subject:    parsed.Subject,
-		Body:       "Simulated orchestrator report.",
+		Body:       reportBody(parsed.Kind),
 		Metadata: map[string]string{
 			"kind":     parsed.Kind,
 			"schedule": parsed.Schedule,
 		},
 	})
+}
+
+func reportBody(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "job_summary"
+	}
+	return "Orchestrator report\n\nKind: " + kind + "\n"
 }
 
 func durationFromPayload(payload map[string]any) time.Duration {

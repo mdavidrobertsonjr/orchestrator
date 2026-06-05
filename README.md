@@ -69,6 +69,19 @@ The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the re
 
 Email report requests are supported as simulated `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs, but it does not send real email until an email provider is configured in a later step.
 
+Configure SMTP to send real `report.email` messages:
+
+```bash
+ORCH_SMTP_HOST=smtp.example.com \
+ORCH_SMTP_PORT=587 \
+ORCH_SMTP_USERNAME=apikey-or-user \
+ORCH_SMTP_PASSWORD=secret \
+ORCH_SMTP_FROM=orchestrator@example.com \
+make website
+```
+
+If `ORCH_SMTP_HOST` is not set, email delivery remains simulated for local development.
+
 ## Scheduled Workflows
 
 Recurring workflows are stored separately from individual jobs. The scheduler polls enabled workflow definitions and creates a normal queued job whenever `next_run_at` is due. Each scheduled execution then uses the same worker pool, retries, logs, persistence, and dashboard views as manually submitted jobs.

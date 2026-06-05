@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"orchestrator/backend/internal/api"
+	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/monitor"
@@ -66,7 +67,8 @@ func main() {
 	defer closeResultStore()
 
 	monitorRunner := monitor.NewRunner(postingStore, nil)
-	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore)
+	emailSender := buildEmailSender(cfg, logger)
+	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, emailSender)
 
 	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
 		logger.Error("failed to hydrate pending jobs", "error", err)
@@ -137,6 +139,11 @@ type config struct {
 	OpenAIAPIKey          string
 	OpenAIModel           string
 	SchedulerPollInterval time.Duration
+	SMTPHost              string
+	SMTPPort              int
+	SMTPUsername          string
+	SMTPPassword          string
+	SMTPFrom              string
 }
 
 func configFromEnv() config {
@@ -150,6 +157,11 @@ func configFromEnv() config {
 		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
 		OpenAIModel:           envString("ORCH_OPENAI_MODEL", "gpt-5.4-nano"),
 		SchedulerPollInterval: time.Duration(envInt("ORCH_SCHEDULER_POLL_SECONDS", 30)) * time.Second,
+		SMTPHost:              os.Getenv("ORCH_SMTP_HOST"),
+		SMTPPort:              envInt("ORCH_SMTP_PORT", 587),
+		SMTPUsername:          os.Getenv("ORCH_SMTP_USERNAME"),
+		SMTPPassword:          os.Getenv("ORCH_SMTP_PASSWORD"),
+		SMTPFrom:              os.Getenv("ORCH_SMTP_FROM"),
 	}
 }
 
@@ -161,6 +173,22 @@ func buildPlanner(cfg config, logger *slog.Logger) llm.Planner {
 
 	logger.Info("LLM planner enabled", "model", cfg.OpenAIModel)
 	return llm.NewOpenAIPlanner(cfg.OpenAIAPIKey, cfg.OpenAIModel)
+}
+
+func buildEmailSender(cfg config, logger *slog.Logger) email.Sender {
+	if cfg.SMTPHost == "" {
+		logger.Info("SMTP email delivery disabled; ORCH_SMTP_HOST is not set")
+		return nil
+	}
+
+	logger.Info("SMTP email delivery enabled", "host", cfg.SMTPHost, "port", cfg.SMTPPort)
+	return email.NewSMTPSender(email.SMTPConfig{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+	})
 }
 
 func buildStore(ctx context.Context, cfg config, logger *slog.Logger) (jobs.Store, func(), error) {
