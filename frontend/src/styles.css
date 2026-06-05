@@ -628,6 +628,11 @@ textarea {
   font-size: 13px;
 }
 
+.result-line .result-meta {
+  color: #405060;
+  font-weight: 700;
+}
+
 .logs {
   border-radius: 8px;
   background: #111820;

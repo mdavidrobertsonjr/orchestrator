@@ -928,6 +928,7 @@ function ResultsTable({
             <th>Result</th>
             <th>Workflow</th>
             <th>Job</th>
+            <th>Alert</th>
             <th>Created</th>
           </tr>
         </thead>
@@ -949,6 +950,15 @@ function ResultsTable({
                   >
                     {result.job_id.slice(0, 12)}
                   </button>
+                ) : (
+                  "-"
+                )}
+              </td>
+              <td>
+                {hasAlertFlag(result) ? (
+                  <span className={`status-pill ${result.data?.alert_sent ? "succeeded" : "canceled"}`}>
+                    {result.data?.alert_sent ? "sent" : "not sent"}
+                  </span>
                 ) : (
                   "-"
                 )}
@@ -996,6 +1006,9 @@ function JobDetail({ job, results }: { job: Job; results: Result[] }) {
             <div className="result-line" key={result.id}>
               <strong>{result.type}</strong>
               <span>{result.summary || "No summary"}</span>
+              {hasAlertFlag(result) && (
+                <span className="result-meta">Alert {result.data?.alert_sent ? "sent" : "not sent"}</span>
+              )}
             </div>
           ))}
         </div>
@@ -1031,6 +1044,10 @@ function WorkerPill({ status }: { status: WorkerStatus }) {
 
 function EmptyState({ label }: { label: string }) {
   return <div className="empty-state">{label}</div>;
+}
+
+function hasAlertFlag(result: Result) {
+  return typeof result.data?.alert_sent === "boolean";
 }
 
 function relativeTime(value: string) {
