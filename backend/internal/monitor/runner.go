@@ -26,12 +26,13 @@ type Source interface {
 }
 
 type SourceConfig struct {
-	Type        string      `json:"type"`
-	Name        string      `json:"name"`
-	Company     string      `json:"company"`
-	BoardToken  string      `json:"board_token"`
-	AccountName string      `json:"account_name"`
-	Postings    []Candidate `json:"postings"`
+	Type         string      `json:"type"`
+	Name         string      `json:"name"`
+	Company      string      `json:"company"`
+	BoardToken   string      `json:"board_token"`
+	AccountName  string      `json:"account_name"`
+	JobBoardName string      `json:"job_board_name"`
+	Postings     []Candidate `json:"postings"`
 }
 
 type Candidate struct {
@@ -74,6 +75,9 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	}
 	if _, ok := sources["lever"]; !ok {
 		sources["lever"] = NewLeverSource(nil)
+	}
+	if _, ok := sources["ashby"]; !ok {
+		sources["ashby"] = NewAshbySource(nil)
 	}
 	return &Runner{store: store, sources: sources}
 }
@@ -473,4 +477,147 @@ func leverPostedAt(createdAt int64) *time.Time {
 	}
 	postedAt := time.UnixMilli(createdAt).UTC()
 	return &postedAt
+}
+
+type AshbySource struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewAshbySource(client *http.Client) *AshbySource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &AshbySource{
+		client:  client,
+		baseURL: "https://api.ashbyhq.com",
+	}
+}
+
+func (s *AshbySource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	jobBoardName := strings.TrimSpace(config.JobBoardName)
+	if jobBoardName == "" {
+		jobBoardName = strings.TrimSpace(config.Name)
+	}
+	if jobBoardName == "" {
+		return nil, errors.New("ashby source requires job_board_name")
+	}
+
+	endpoint, err := url.JoinPath(strings.TrimRight(s.baseURL, "/"), "posting-api", "job-board", jobBoardName)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	query.Set("includeCompensation", "true")
+	parsed.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ashby returned status %d", resp.StatusCode)
+	}
+
+	var body ashbyJobsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, len(body.Jobs))
+	for _, job := range body.Jobs {
+		if !job.IsListed {
+			continue
+		}
+
+		metadata := map[string]string{
+			"job_board_name": jobBoardName,
+		}
+		if job.Department != "" {
+			metadata["department"] = job.Department
+		}
+		if job.Team != "" {
+			metadata["team"] = job.Team
+		}
+		if job.EmploymentType != "" {
+			metadata["employment_type"] = job.EmploymentType
+		}
+		if job.WorkplaceType != "" {
+			metadata["workplace_type"] = job.WorkplaceType
+		}
+		if job.Compensation.CompensationTierSummary != "" {
+			metadata["compensation"] = job.Compensation.CompensationTierSummary
+		}
+
+		candidates = append(candidates, Candidate{
+			Company:  firstNonEmpty(config.Company, config.Name, jobBoardName),
+			Title:    job.Title,
+			URL:      firstNonEmpty(job.JobURL, job.ApplyURL),
+			Location: ashbyLocation(job),
+			Source:   "ashby",
+			SourceID: firstNonEmpty(job.ID, job.JobURL, job.ApplyURL),
+			PostedAt: ashbyPublishedAt(job.PublishedAt),
+			Metadata: metadata,
+		})
+	}
+
+	return candidates, nil
+}
+
+type ashbyJobsResponse struct {
+	Jobs []ashbyJob `json:"jobs"`
+}
+
+type ashbyJob struct {
+	ID             string            `json:"id"`
+	Title          string            `json:"title"`
+	Location       string            `json:"location"`
+	Department     string            `json:"department"`
+	Team           string            `json:"team"`
+	IsListed       bool              `json:"isListed"`
+	IsRemote       bool              `json:"isRemote"`
+	WorkplaceType  string            `json:"workplaceType"`
+	PublishedAt    string            `json:"publishedAt"`
+	EmploymentType string            `json:"employmentType"`
+	JobURL         string            `json:"jobUrl"`
+	ApplyURL       string            `json:"applyUrl"`
+	Compensation   ashbyCompensation `json:"compensation"`
+}
+
+type ashbyCompensation struct {
+	CompensationTierSummary string `json:"compensationTierSummary"`
+}
+
+func ashbyLocation(job ashbyJob) string {
+	if strings.TrimSpace(job.Location) != "" {
+		return strings.TrimSpace(job.Location)
+	}
+	if job.IsRemote || strings.EqualFold(job.WorkplaceType, "Remote") {
+		return "Remote"
+	}
+	return ""
+}
+
+func ashbyPublishedAt(raw string) *time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	publishedAt, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil
+	}
+	publishedAt = publishedAt.UTC()
+	return &publishedAt
 }

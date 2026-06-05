@@ -223,6 +223,16 @@ Lever sources are also supported:
 }
 ```
 
+Ashby sources are also supported:
+
+```json
+{
+  "type": "ashby",
+  "company": "ExampleCo",
+  "job_board_name": "exampleco"
+}
+```
+
 ## Checks
 
 Run backend tests and build the frontend:
