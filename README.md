@@ -67,7 +67,7 @@ OPENAI_API_KEY=sk-... make website
 
 The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
 
-Email report requests are supported as simulated `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs, but it does not send real email until an email provider is configured in a later step.
+Email report requests are supported as `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs. Delivery is simulated by default and uses SMTP when configured.
 
 Configure SMTP to send real `report.email` messages:
 
@@ -81,6 +81,41 @@ make website
 ```
 
 If `ORCH_SMTP_HOST` is not set, email delivery remains simulated for local development.
+
+Job monitor workflows can send immediate alerts when new postings are discovered:
+
+```json
+{
+  "notification_mode": "immediate",
+  "recipients": ["you@example.com"]
+}
+```
+
+The preferred nested form is:
+
+```json
+{
+  "notifications": {
+    "mode": "immediate",
+    "recipients": ["you@example.com"]
+  }
+}
+```
+
+Daily monitor digests can be scheduled as `report.email` workflows with `kind` set to `monitor_digest`; the report reads recent structured monitor results and emails a summary.
+
+Example digest report payload:
+
+```json
+{
+  "report": {
+    "recipients": ["you@example.com"],
+    "subject": "Daily job monitor digest",
+    "kind": "monitor_digest",
+    "schedule": "daily"
+  }
+}
+```
 
 ## Scheduled Workflows
 
@@ -218,7 +253,10 @@ Example Greenhouse monitor payload:
     "excluded_keywords": ["senior", "staff", "principal"],
     "locations": ["new york", "nyc"],
     "min_score": 20,
-    "notification_mode": "daily"
+    "notifications": {
+      "mode": "immediate",
+      "recipients": ["you@example.com"]
+    }
   },
   "metadata": {
     "submitted_by": "dashboard"
