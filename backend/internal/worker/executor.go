@@ -39,7 +39,11 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 		if err != nil {
 			return err
 		}
-		if err := e.recordMonitorResult(job, result, logf); err != nil {
+		alertSent, err := e.sendMonitorAlert(ctx, job, result, logf)
+		if err != nil {
+			return err
+		}
+		if err := e.recordMonitorResult(job, result, alertSent, logf); err != nil {
 			return err
 		}
 	} else if job.Type == "report.email" {
@@ -70,7 +74,78 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	return nil
 }
 
-func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.Result, logf func(string)) error {
+func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job, result *monitor.Result, logf func(string)) (bool, error) {
+	if result == nil || result.Created == 0 {
+		return false, nil
+	}
+
+	config := monitorNotificationConfig(job.Payload)
+	if config.mode != "immediate" || len(config.recipients) == 0 {
+		return false, nil
+	}
+
+	sender := e.emailSender
+	if sender == nil {
+		sender = email.NewSimulatedSender(logf)
+	}
+
+	if err := sender.Send(ctx, email.Message{
+		Recipients: config.recipients,
+		Subject:    fmt.Sprintf("New job monitor matches: %d", result.Created),
+		Body:       monitorAlertBody(job, result),
+		Metadata: map[string]string{
+			"kind": "monitor_alert",
+		},
+	}); err != nil {
+		return false, err
+	}
+
+	logf(fmt.Sprintf("monitor alert sent to %s", strings.Join(config.recipients, ", ")))
+	return true, nil
+}
+
+type notificationConfig struct {
+	mode       string
+	recipients []string
+}
+
+func monitorNotificationConfig(payload map[string]any) notificationConfig {
+	var parsed struct {
+		NotificationMode string   `json:"notification_mode"`
+		Recipients       []string `json:"recipients"`
+		Notifications    struct {
+			Mode       string   `json:"mode"`
+			Recipients []string `json:"recipients"`
+		} `json:"notifications"`
+	}
+
+	data, err := json.Marshal(payload)
+	if err == nil {
+		_ = json.Unmarshal(data, &parsed)
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(parsed.Notifications.Mode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(parsed.NotificationMode))
+	}
+	recipients := parsed.Notifications.Recipients
+	if len(recipients) == 0 {
+		recipients = parsed.Recipients
+	}
+	return notificationConfig{mode: mode, recipients: recipients}
+}
+
+func monitorAlertBody(job *jobs.Job, result *monitor.Result) string {
+	return fmt.Sprintf("Workflow monitor found new postings.\n\nJob: %s\nScanned: %d\nMatched: %d\nNew: %d\nUpdated: %d\n",
+		job.ID,
+		result.Scanned,
+		result.Matched,
+		result.Created,
+		result.Updated,
+	)
+}
+
+func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.Result, alertSent bool, logf func(string)) error {
 	if e.results == nil || result == nil {
 		return nil
 	}
@@ -86,10 +161,11 @@ func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.R
 		Type:       "monitor.summary",
 		Summary:    fmt.Sprintf("scanned %d postings, matched %d, new %d", result.Scanned, result.Matched, result.Created),
 		Data: map[string]any{
-			"scanned": result.Scanned,
-			"matched": result.Matched,
-			"created": result.Created,
-			"updated": result.Updated,
+			"scanned":    result.Scanned,
+			"matched":    result.Matched,
+			"created":    result.Created,
+			"updated":    result.Updated,
+			"alert_sent": alertSent,
 		},
 	})
 	if err != nil {

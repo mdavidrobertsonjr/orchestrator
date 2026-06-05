@@ -54,6 +54,13 @@ type Payload struct {
 	Locations        []string       `json:"locations"`
 	MinScore         int            `json:"min_score"`
 	NotificationMode string         `json:"notification_mode"`
+	Notifications    Notifications  `json:"notifications"`
+	Recipients       []string       `json:"recipients"`
+}
+
+type Notifications struct {
+	Mode       string   `json:"mode"`
+	Recipients []string `json:"recipients"`
 }
 
 type Result struct {
