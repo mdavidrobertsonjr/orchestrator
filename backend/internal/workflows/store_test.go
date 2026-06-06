@@ -74,6 +74,34 @@ func TestMemoryStoreListDue(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreDefaultsNextRunToFirstInterval(t *testing.T) {
+	store := NewMemoryStore()
+	beforeCreate := time.Now().UTC()
+
+	workflow, err := store.Create(CreateWorkflowParams{
+		Name:            "daily monitor",
+		JobType:         "jobs.monitor.new_grad",
+		Enabled:         true,
+		IntervalSeconds: 86400,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	minNextRun := beforeCreate.Add(86400 * time.Second)
+	if workflow.NextRunAt.Before(minNextRun) {
+		t.Fatalf("expected next run after first interval, got %s before %s", workflow.NextRunAt, minNextRun)
+	}
+
+	due, err := store.ListDue(beforeCreate.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("list due: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("expected newly-created workflow not to be due early, got %#v", due)
+	}
+}
+
 func TestMemoryStoreMarkDispatched(t *testing.T) {
 	store := NewMemoryStore()
 	workflow, err := store.Create(CreateWorkflowParams{Name: "due", JobType: "demo.sleep", Enabled: true, IntervalSeconds: 60})

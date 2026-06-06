@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,6 +70,7 @@ func main() {
 	monitorRunner := monitor.NewRunner(postingStore, nil)
 	emailSender := buildEmailSender(cfg, logger)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, emailSender)
+	executor.SetDefaultRecipients(cfg.DefaultRecipients)
 
 	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
 		logger.Error("failed to hydrate pending jobs", "error", err)
@@ -144,6 +146,7 @@ type config struct {
 	SMTPUsername          string
 	SMTPPassword          string
 	SMTPFrom              string
+	DefaultRecipients     []string
 }
 
 func configFromEnv() config {
@@ -162,6 +165,7 @@ func configFromEnv() config {
 		SMTPUsername:          os.Getenv("ORCH_SMTP_USERNAME"),
 		SMTPPassword:          os.Getenv("ORCH_SMTP_PASSWORD"),
 		SMTPFrom:              os.Getenv("ORCH_SMTP_FROM"),
+		DefaultRecipients:     envStringList("ORCH_DEFAULT_RECIPIENTS"),
 	}
 }
 
@@ -351,4 +355,21 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func envStringList(key string) []string {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

@@ -64,10 +64,7 @@ func (s *PostgresStore) Create(params CreateWorkflowParams) (*Workflow, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = 1
 	}
-	nextRunAt := now
-	if params.NextRunAt != nil {
-		nextRunAt = params.NextRunAt.UTC()
-	}
+	nextRunAt := defaultNextRunAt(now, params)
 
 	payload, err := jsonOrNil(params.Payload)
 	if err != nil {

@@ -37,10 +37,7 @@ func (s *MemoryStore) Create(params CreateWorkflowParams) (*Workflow, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = 1
 	}
-	nextRunAt := now
-	if params.NextRunAt != nil {
-		nextRunAt = params.NextRunAt.UTC()
-	}
+	nextRunAt := defaultNextRunAt(now, params)
 
 	workflow := &Workflow{
 		ID:              newID(),
@@ -60,6 +57,16 @@ func (s *MemoryStore) Create(params CreateWorkflowParams) (*Workflow, error) {
 	defer s.mu.Unlock()
 	s.workflows[workflow.ID] = workflow
 	return cloneWorkflow(workflow), nil
+}
+
+func defaultNextRunAt(now time.Time, params CreateWorkflowParams) time.Time {
+	if params.NextRunAt != nil {
+		return params.NextRunAt.UTC()
+	}
+	if params.IntervalSeconds > 0 {
+		return now.Add(time.Duration(params.IntervalSeconds) * time.Second)
+	}
+	return now
 }
 
 func (s *MemoryStore) Get(id string) (*Workflow, error) {

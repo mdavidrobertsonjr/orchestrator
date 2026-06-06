@@ -20,14 +20,19 @@ type Executor interface {
 }
 
 type SimulatedExecutor struct {
-	logger        *slog.Logger
-	monitorRunner *monitor.Runner
-	results       results.Store
-	emailSender   email.Sender
+	logger            *slog.Logger
+	monitorRunner     *monitor.Runner
+	results           results.Store
+	emailSender       email.Sender
+	defaultRecipients []string
 }
 
 func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, resultStore results.Store, emailSender email.Sender) *SimulatedExecutor {
 	return &SimulatedExecutor{logger: logger, monitorRunner: monitorRunner, results: resultStore, emailSender: emailSender}
+}
+
+func (e *SimulatedExecutor) SetDefaultRecipients(recipients []string) {
+	e.defaultRecipients = cleanRecipients(recipients)
 }
 
 func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
@@ -80,7 +85,14 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 	}
 
 	config := monitorNotificationConfig(job.Payload)
-	if config.mode != "immediate" || len(config.recipients) == 0 {
+	if config.mode != "immediate" {
+		return false, nil
+	}
+	if len(config.recipients) == 0 {
+		config.recipients = e.defaultRecipients
+	}
+	if len(config.recipients) == 0 {
+		logf("monitor alert skipped; no recipients configured")
 		return false, nil
 	}
 
@@ -132,7 +144,18 @@ func monitorNotificationConfig(payload map[string]any) notificationConfig {
 	if len(recipients) == 0 {
 		recipients = parsed.Recipients
 	}
-	return notificationConfig{mode: mode, recipients: recipients}
+	return notificationConfig{mode: mode, recipients: cleanRecipients(recipients)}
+}
+
+func cleanRecipients(recipients []string) []string {
+	var out []string
+	for _, recipient := range recipients {
+		recipient = strings.TrimSpace(recipient)
+		if recipient != "" {
+			out = append(out, recipient)
+		}
+	}
+	return out
 }
 
 func monitorAlertBody(job *jobs.Job, result *monitor.Result) string {

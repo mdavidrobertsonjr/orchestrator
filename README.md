@@ -91,6 +91,14 @@ Job monitor workflows can send immediate alerts when new postings are discovered
 }
 ```
 
+For a personal deployment, set a default recipient once and omit recipients from individual monitor payloads:
+
+```bash
+ORCH_DEFAULT_RECIPIENTS=you@example.com
+```
+
+Workflow-specific `recipients` still take precedence, which keeps the orchestrator usable for other alerting and reporting workflows.
+
 The preferred nested form is:
 
 ```json

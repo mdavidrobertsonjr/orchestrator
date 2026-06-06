@@ -178,6 +178,53 @@ func TestSimulatedExecutorSendsImmediateMonitorAlert(t *testing.T) {
 	}
 }
 
+func TestSimulatedExecutorUsesDefaultMonitorAlertRecipients(t *testing.T) {
+	postingStore := postings.NewMemoryStore()
+	sender := &recordingSender{}
+	executor := NewSimulatedExecutor(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		monitor.NewRunner(postingStore, nil),
+		results.NewMemoryStore(),
+		sender,
+	)
+	executor.SetDefaultRecipients([]string{" default@example.com "})
+
+	job := &jobs.Job{
+		ID:   "job-1",
+		Type: monitor.NewGradJobType,
+		Payload: map[string]any{
+			"duration_ms": float64(100),
+			"sources": []map[string]any{
+				{
+					"type": "fake",
+					"postings": []map[string]any{
+						{
+							"company":   "Datadog",
+							"title":     "Software Engineer, New Grad",
+							"url":       "https://example.com/datadog/new-grad",
+							"location":  "New York, NY",
+							"source":    "fake",
+							"source_id": "dd-1",
+						},
+					},
+				},
+			},
+			"keywords":          []string{"new grad"},
+			"notification_mode": "immediate",
+		},
+	}
+
+	if err := executor.Execute(t.Context(), job, func(string) {}); err != nil {
+		t.Fatalf("execute monitor job: %v", err)
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected one alert email, got %d", len(sender.messages))
+	}
+	if sender.messages[0].Recipients[0] != "default@example.com" {
+		t.Fatalf("unexpected recipients: %#v", sender.messages[0].Recipients)
+	}
+}
+
 func TestSimulatedExecutorSendsMonitorDigestReport(t *testing.T) {
 	resultStore := results.NewMemoryStore()
 	if _, err := resultStore.Create(results.CreateResultParams{
