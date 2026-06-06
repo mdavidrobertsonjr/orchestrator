@@ -80,6 +80,17 @@ ORCH_SMTP_FROM=orchestrator@example.com \
 make website
 ```
 
+For local development, copy `.env.example` to `.env` and fill in the provider password. `make dev`, `make backend`, and `make website` load `.env` automatically. For Gmail, use an app password rather than your normal Google password:
+
+```bash
+ORCH_SMTP_HOST=smtp.gmail.com
+ORCH_SMTP_PORT=587
+ORCH_SMTP_USERNAME=mdavidrobertsonjr@gmail.com
+ORCH_SMTP_PASSWORD=your-google-app-password
+ORCH_SMTP_FROM=mdavidrobertsonjr@gmail.com
+ORCH_DEFAULT_RECIPIENTS=mdavidrobertsonjr@gmail.com
+```
+
 If `ORCH_SMTP_HOST` is not set, email delivery remains simulated for local development.
 
 Job monitor workflows can send immediate alerts when new postings are discovered:

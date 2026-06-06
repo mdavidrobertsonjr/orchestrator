@@ -1,5 +1,10 @@
 SHELL := /bin/bash
 
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 POSTGRES_URL := postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 BACKEND_ENV := GOCACHE=/tmp/go-build-cache ORCH_ADDR=:8080 ORCH_WORKERS=2
 
