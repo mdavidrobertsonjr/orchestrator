@@ -409,6 +409,12 @@ td span {
   background: #f5f8fb;
 }
 
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .link-button {
   background: transparent;
   border: 0;

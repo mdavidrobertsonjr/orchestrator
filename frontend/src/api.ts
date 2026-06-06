@@ -201,6 +201,12 @@ export function updateWorkflow(id: string, input: UpdateWorkflowInput): Promise<
   });
 }
 
+export function runWorkflow(id: string): Promise<Job> {
+  return request<Job>(`/v1/workflows/${id}/run`, {
+    method: "POST"
+  });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {

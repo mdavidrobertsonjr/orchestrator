@@ -574,6 +574,54 @@ func TestUpdateWorkflowValidation(t *testing.T) {
 	}
 }
 
+func TestRunWorkflowCreatesQueuedJob(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	jobStore := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	router := NewRouter(Config{
+		Queue:     queue,
+		Store:     jobStore,
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
+	})
+
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "Datadog monitor",
+		JobType:         "jobs.monitor.new_grad",
+		Payload:         map[string]any{"min_score": float64(20)},
+		Metadata:        map[string]string{"team": "recruiting"},
+		MaxAttempts:     2,
+		Enabled:         true,
+		IntervalSeconds: 86400,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/workflows/"+workflow.ID+"/run", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+
+	var job jobs.Job
+	if err := json.NewDecoder(rec.Body).Decode(&job); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if job.Type != workflow.JobType || job.Name != workflow.Name {
+		t.Fatalf("unexpected job created from workflow: %#v", job)
+	}
+	if job.Metadata["workflow_id"] != workflow.ID || job.Metadata["manual_run"] != "true" {
+		t.Fatalf("expected manual workflow metadata, got %#v", job.Metadata)
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("expected queued job, got queue length %d", queue.Len())
+	}
+}
+
 func TestGetAndListResults(t *testing.T) {
 	resultStore := results.NewMemoryStore()
 	router := testRouterWithResults(resultStore)

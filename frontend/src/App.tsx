@@ -34,6 +34,7 @@ import {
   Posting,
   QueueStatus,
   Result,
+  runWorkflow,
   updateWorkflow,
   Worker,
   WorkerStatus,
@@ -322,6 +323,19 @@ export function App() {
     }
   }
 
+  async function handleWorkflowRun(workflow: Workflow) {
+    setError(null);
+
+    try {
+      const job = await runWorkflow(workflow.id);
+      setSelectedJobID(job.id);
+      setActiveSection("jobs");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to run workflow");
+    }
+  }
+
   const queueFill = queue.capacity ? (queue.queued / queue.capacity) * 100 : 0;
 
   const overviewPanels = (
@@ -368,6 +382,7 @@ export function App() {
           jobs={jobs}
           loading={loading}
           onToggle={(workflow) => void handleWorkflowToggle(workflow)}
+          onRun={(workflow) => void handleWorkflowRun(workflow)}
           onSelectJob={setSelectedJobID}
         />
       </Panel>
@@ -908,12 +923,14 @@ function WorkflowsTable({
   jobs,
   loading,
   onToggle,
+  onRun,
   onSelectJob
 }: {
   workflows: Workflow[];
   jobs: Job[];
   loading: boolean;
   onToggle: (workflow: Workflow) => void;
+  onRun: (workflow: Workflow) => void;
   onSelectJob: (id: string) => void;
 }) {
   if (loading) {
@@ -985,16 +1002,28 @@ function WorkflowsTable({
                   )}
                 </td>
                 <td>
-                  <button
-                    className="table-action"
-                    type="button"
-                    onClick={() => onToggle(workflow)}
-                    aria-label={workflow.enabled ? "Pause workflow" : "Resume workflow"}
-                    title={workflow.enabled ? "Pause workflow" : "Resume workflow"}
-                  >
-                    {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
-                    {workflow.enabled ? "Pause" : "Resume"}
-                  </button>
+                  <div className="table-actions">
+                    <button
+                      className="table-action"
+                      type="button"
+                      onClick={() => onRun(workflow)}
+                      aria-label="Run workflow now"
+                      title="Run workflow now"
+                    >
+                      <Play size={16} />
+                      Run now
+                    </button>
+                    <button
+                      className="table-action"
+                      type="button"
+                      onClick={() => onToggle(workflow)}
+                      aria-label={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                      title={workflow.enabled ? "Pause workflow" : "Resume workflow"}
+                    >
+                      {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
+                      {workflow.enabled ? "Pause" : "Resume"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

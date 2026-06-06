@@ -68,6 +68,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/workflows/natural", server.handleCreateNaturalWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
+	mux.HandleFunc("POST /v1/workflows/{id}/run", server.handleRunWorkflow)
 	mux.HandleFunc("GET /v1/results", server.handleListResults)
 	mux.HandleFunc("GET /v1/results/{id}", server.handleGetResult)
 	if config.Static != "" {
@@ -448,6 +449,59 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workflow)
 }
 
+func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+
+	workflow, err := s.workflows.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, workflows.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		s.logger.Error("failed to get workflow for manual run", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+
+	metadata := workflowRunMetadata(workflow)
+	job, err := s.store.Create(jobs.CreateJobParams{
+		Name:        workflow.Name,
+		Type:        workflow.JobType,
+		Payload:     workflow.Payload,
+		MaxAttempts: workflow.MaxAttempts,
+		Metadata:    metadata,
+	})
+	if err != nil {
+		s.logger.Error("failed to create manual workflow job", "workflow_id", workflow.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create workflow job")
+		return
+	}
+
+	if err := s.queue.Enqueue(r.Context(), job.ID); err != nil {
+		s.logger.Error("failed to enqueue manual workflow job", "workflow_id", workflow.ID, "job_id", job.ID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "queue is unavailable")
+		return
+	}
+
+	s.logger.Info("workflow manually dispatched", "workflow_id", workflow.ID, "job_id", job.ID)
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func workflowRunMetadata(workflow *workflows.Workflow) map[string]string {
+	metadata := map[string]string{}
+	for key, value := range workflow.Metadata {
+		metadata[key] = value
+	}
+	metadata["submitted_by"] = "dashboard"
+	metadata["manual_run"] = "true"
+	metadata["workflow_id"] = workflow.ID
+	metadata["workflow_name"] = workflow.Name
+	return metadata
+}
+
 func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 	if s.workflows == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"workflows": []*workflows.Workflow{}})
@@ -537,7 +591,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		if isAllowedDevOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
 
