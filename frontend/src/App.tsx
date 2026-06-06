@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
-  Activity,
   Boxes,
   CheckCircle2,
   Clock3,
@@ -42,6 +41,60 @@ import {
 } from "./api";
 
 const defaultQueue: QueueStatus = { queued: 0, capacity: 0 };
+
+type DashboardSection = "overview" | "jobs" | "postings" | "workflows" | "results" | "workers" | "commands";
+
+type NavItem = {
+  id: DashboardSection;
+  label: string;
+  description: string;
+  icon: ReactNode;
+};
+
+const navItems: NavItem[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    description: "Runtime health",
+    icon: <LayoutDashboard size={18} />
+  },
+  {
+    id: "jobs",
+    label: "Jobs",
+    description: "Executions",
+    icon: <ListChecks size={18} />
+  },
+  {
+    id: "postings",
+    label: "Postings",
+    description: "Role matches",
+    icon: <ExternalLink size={18} />
+  },
+  {
+    id: "workflows",
+    label: "Workflows",
+    description: "Schedules",
+    icon: <Clock3 size={18} />
+  },
+  {
+    id: "results",
+    label: "Results",
+    description: "Outputs",
+    icon: <Terminal size={18} />
+  },
+  {
+    id: "workers",
+    label: "Workers",
+    description: "Executors",
+    icon: <Server size={18} />
+  },
+  {
+    id: "commands",
+    label: "Commands",
+    description: "Create work",
+    icon: <Send size={18} />
+  }
+];
 
 type SubmitState = {
   name: string;
@@ -113,11 +166,19 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [activeSection, setActiveSection] = useState<DashboardSection>("overview");
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobID) ?? jobs[0],
     [jobs, selectedJobID]
   );
+
+  const selectedJobResults = useMemo(
+    () => (selectedJob ? results.filter((result) => result.job_id === selectedJob.id) : []),
+    [results, selectedJob]
+  );
+
+  const activeNavItem = navItems.find((item) => item.id === activeSection) ?? navItems[0];
 
   const summary = useMemo(() => {
     return {
@@ -261,6 +322,104 @@ export function App() {
     }
   }
 
+  const queueFill = queue.capacity ? (queue.queued / queue.capacity) * 100 : 0;
+
+  const overviewPanels = (
+    <>
+      <SummaryGrid summary={summary} />
+      <section className="dashboard-grid">
+        <Panel title="Recent Jobs" subtitle={`${jobs.length} tracked executions`}>
+          <JobsTable jobs={jobs.slice(0, 8)} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
+        </Panel>
+        <Panel title="Queue" subtitle="In-memory capacity">
+          <QueueMeter queue={queue} fill={queueFill} />
+        </Panel>
+        <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+          <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
+        </Panel>
+        <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
+          {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
+        </Panel>
+      </section>
+    </>
+  );
+
+  const sectionContent: Record<DashboardSection, ReactNode> = {
+    overview: overviewPanels,
+    jobs: (
+      <section className="split-view">
+        <Panel title="Jobs" subtitle={`${jobs.length} tracked executions`}>
+          <JobsTable jobs={jobs} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
+        </Panel>
+        <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
+          {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
+        </Panel>
+      </section>
+    ),
+    postings: (
+      <Panel title="Discovered Postings" subtitle={`${postings.length} monitor matches`}>
+        <PostingsTable postings={postings} loading={loading} />
+      </Panel>
+    ),
+    workflows: (
+      <Panel title="Scheduled Workflows" subtitle={`${workflows.length} recurring definitions`}>
+        <WorkflowsTable
+          workflows={workflows}
+          jobs={jobs}
+          loading={loading}
+          onToggle={(workflow) => void handleWorkflowToggle(workflow)}
+          onSelectJob={setSelectedJobID}
+        />
+      </Panel>
+    ),
+    results: (
+      <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+        <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
+      </Panel>
+    ),
+    workers: (
+      <section className="split-view">
+        <Panel title="Workers" subtitle={`${workers.length} registered nodes`}>
+          <WorkersTable workers={workers} loading={loading} />
+        </Panel>
+        <Panel title="Queue" subtitle="In-memory capacity">
+          <QueueMeter queue={queue} fill={queueFill} />
+        </Panel>
+      </section>
+    ),
+    commands: (
+      <section className="command-grid">
+        <Panel title="Describe Workflow" subtitle="Plan recurring work in English">
+          <NaturalWorkflowForm
+            prompt={naturalWorkflowPrompt}
+            submitting={submitting}
+            onChange={setNaturalWorkflowPrompt}
+            onSubmit={handleNaturalWorkflowSubmit}
+          />
+        </Panel>
+        <Panel title="Schedule Workflow" subtitle="Create recurring work">
+          <WorkflowForm
+            form={workflowForm}
+            submitting={submitting}
+            onChange={setWorkflowForm}
+            onSubmit={handleWorkflowSubmit}
+          />
+        </Panel>
+        <Panel title="Ask Orchestrator" subtitle="Describe a one-off job in English">
+          <NaturalJobForm
+            prompt={naturalPrompt}
+            submitting={submitting}
+            onChange={setNaturalPrompt}
+            onSubmit={handleNaturalSubmit}
+          />
+        </Panel>
+        <Panel title="Submit Job" subtitle="Create a simulated workload">
+          <SubmitJobForm form={form} submitting={submitting} onChange={setForm} onSubmit={handleSubmit} />
+        </Panel>
+      </section>
+    )
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -275,34 +434,20 @@ export function App() {
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
-          <a className="nav-item active" href="#overview">
-            <LayoutDashboard size={18} />
-            Overview
-          </a>
-          <a className="nav-item" href="#jobs">
-            <ListChecks size={18} />
-            Jobs
-          </a>
-          <a className="nav-item" href="#postings">
-            <ExternalLink size={18} />
-            Postings
-          </a>
-          <a className="nav-item" href="#workflows">
-            <Clock3 size={18} />
-            Workflows
-          </a>
-          <a className="nav-item" href="#results">
-            <Terminal size={18} />
-            Results
-          </a>
-          <a className="nav-item" href="#workers">
-            <Server size={18} />
-            Workers
-          </a>
-          <a className="nav-item" href="#queue">
-            <Activity size={18} />
-            Queue
-          </a>
+          {navItems.map((item) => (
+            <button
+              className={`nav-item ${item.id === activeSection ? "active" : ""}`}
+              type="button"
+              key={item.id}
+              onClick={() => setActiveSection(item.id)}
+            >
+              {item.icon}
+              <span>
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </span>
+            </button>
+          ))}
         </nav>
       </aside>
 
@@ -310,7 +455,7 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Distributed Job Runtime</p>
-            <h1>Operations Overview</h1>
+            <h1>{activeNavItem.label}</h1>
           </div>
           <div className="topbar-actions">
             <span className={`connection-status ${apiOnline ? "online" : "offline"}`}>
@@ -325,316 +470,272 @@ export function App() {
 
         {error && <div className="alert">{error}</div>}
 
-        <section id="overview" className="summary-grid" aria-label="Summary">
-          <SummaryCard label="Queued" value={summary.queued} icon={<Clock3 size={20} />} tone="queued" />
-          <SummaryCard label="Running" value={summary.running} icon={<Play size={20} />} tone="running" />
-          <SummaryCard label="Succeeded" value={summary.succeeded} icon={<CheckCircle2 size={20} />} tone="succeeded" />
-          <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
-          <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
-          <SummaryCard label="Workflows" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
-          <SummaryCard label="Results" value={summary.results} icon={<Terminal size={20} />} tone="results" />
-          <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
-        </section>
-
-        <section className="content-grid">
-          <div className="primary-column">
-            <section id="jobs" className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Jobs</h2>
-                  <p>{jobs.length} tracked executions</p>
-                </div>
-              </div>
-              <JobsTable jobs={jobs} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
-            </section>
-
-            <section id="postings" className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Discovered Postings</h2>
-                  <p>{postings.length} monitor matches</p>
-                </div>
-              </div>
-              <PostingsTable postings={postings} loading={loading} />
-            </section>
-
-            <section id="workflows" className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Scheduled Workflows</h2>
-                  <p>{workflows.length} recurring definitions</p>
-                </div>
-              </div>
-              <WorkflowsTable
-                workflows={workflows}
-                jobs={jobs}
-                loading={loading}
-                onToggle={(workflow) => void handleWorkflowToggle(workflow)}
-                onSelectJob={setSelectedJobID}
-              />
-            </section>
-
-            <section id="workers" className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Workers</h2>
-                  <p>{workers.length} registered nodes</p>
-                </div>
-              </div>
-              <WorkersTable workers={workers} loading={loading} />
-            </section>
-
-            <section id="results" className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Recent Results</h2>
-                  <p>{results.length} structured outputs</p>
-                </div>
-              </div>
-              <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
-            </section>
-          </div>
-
-          <aside className="side-column">
-            <section className="panel submit-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Describe Workflow</h2>
-                  <p>Plan recurring work in English</p>
-                </div>
-              </div>
-              <form className="submit-form" onSubmit={handleNaturalWorkflowSubmit}>
-                <label>
-                  <span>Request</span>
-                  <textarea
-                    value={naturalWorkflowPrompt}
-                    onChange={(event) => setNaturalWorkflowPrompt(event.target.value)}
-                    rows={4}
-                  />
-                </label>
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={submitting || naturalWorkflowPrompt.trim() === ""}
-                >
-                  <Send size={16} />
-                  {submitting ? "Planning" : "Plan Workflow"}
-                </button>
-              </form>
-            </section>
-
-            <section className="panel submit-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Schedule Workflow</h2>
-                  <p>Create recurring work</p>
-                </div>
-              </div>
-              <form className="submit-form" onSubmit={handleWorkflowSubmit}>
-                <label>
-                  <span>Name</span>
-                  <input
-                    value={workflowForm.name}
-                    onChange={(event) => setWorkflowForm({ ...workflowForm, name: event.target.value })}
-                    placeholder="datadog-new-grad-monitor"
-                  />
-                </label>
-                <label>
-                  <span>Job Type</span>
-                  <select
-                    value={workflowForm.jobType}
-                    onChange={(event) => setWorkflowForm({ ...workflowForm, jobType: event.target.value })}
-                  >
-                    <option value="jobs.monitor.new_grad">jobs.monitor.new_grad</option>
-                    <option value="report.email">report.email</option>
-                    <option value="video.transcode">video.transcode</option>
-                    <option value="scrape.url">scrape.url</option>
-                    <option value="data.pipeline">data.pipeline</option>
-                  </select>
-                </label>
-                <div className="field-row">
-                  <label>
-                    <span>Interval</span>
-                    <select
-                      value={workflowForm.intervalSeconds}
-                      onChange={(event) =>
-                        setWorkflowForm({ ...workflowForm, intervalSeconds: Number(event.target.value) })
-                      }
-                    >
-                      <option value={900}>15 minutes</option>
-                      <option value={3600}>Hourly</option>
-                      <option value={86400}>Daily</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Attempts</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={workflowForm.maxAttempts}
-                      onChange={(event) =>
-                        setWorkflowForm({ ...workflowForm, maxAttempts: Number(event.target.value) })
-                      }
-                    />
-                  </label>
-                </div>
-                <label>
-                  <span>Payload JSON</span>
-                  <textarea
-                    className="code-textarea"
-                    value={workflowForm.payload}
-                    rows={10}
-                    spellCheck={false}
-                    onChange={(event) => setWorkflowForm({ ...workflowForm, payload: event.target.value })}
-                  />
-                </label>
-                <label className="checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={workflowForm.enabled}
-                    onChange={(event) => setWorkflowForm({ ...workflowForm, enabled: event.target.checked })}
-                  />
-                  <span>Enabled</span>
-                </label>
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={submitting || workflowForm.jobType.trim() === ""}
-                >
-                  <Send size={16} />
-                  {submitting ? "Scheduling" : "Schedule Workflow"}
-                </button>
-              </form>
-            </section>
-
-            <section className="panel submit-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Ask Orchestrator</h2>
-                  <p>Describe a job in English</p>
-                </div>
-              </div>
-              <form className="submit-form" onSubmit={handleNaturalSubmit}>
-                <label>
-                  <span>Request</span>
-                  <textarea
-                    value={naturalPrompt}
-                    onChange={(event) => setNaturalPrompt(event.target.value)}
-                    rows={4}
-                  />
-                </label>
-                <button className="primary-button" type="submit" disabled={submitting || naturalPrompt.trim() === ""}>
-                  <Send size={16} />
-                  {submitting ? "Planning" : "Plan & Submit"}
-                </button>
-              </form>
-            </section>
-
-            <section className="panel submit-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Submit Job</h2>
-                  <p>Create a simulated workload</p>
-                </div>
-              </div>
-              <form className="submit-form" onSubmit={handleSubmit}>
-                <label>
-                  <span>Name</span>
-                  <input
-                    value={form.name}
-                    onChange={(event) => setForm({ ...form, name: event.target.value })}
-                    placeholder="demo-transcode"
-                  />
-                </label>
-                <label>
-                  <span>Type</span>
-                  <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
-                    <option value="video.transcode">video.transcode</option>
-                    <option value="scrape.url">scrape.url</option>
-                    <option value="python.script">python.script</option>
-                    <option value="ai.inference">ai.inference</option>
-                    <option value="data.pipeline">data.pipeline</option>
-                    <option value="report.email">report.email</option>
-                  </select>
-                </label>
-                <div className="field-row">
-                  <label>
-                    <span>Duration</span>
-                    <input
-                      type="number"
-                      min={100}
-                      max={30000}
-                      step={100}
-                      value={form.durationMs}
-                      onChange={(event) => setForm({ ...form, durationMs: Number(event.target.value) })}
-                    />
-                  </label>
-                  <label>
-                    <span>Attempts</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={form.maxAttempts}
-                      onChange={(event) => setForm({ ...form, maxAttempts: Number(event.target.value) })}
-                    />
-                  </label>
-                </div>
-                <label className="checkbox-field">
-                  <input
-                    type="checkbox"
-                    checked={form.shouldFail}
-                    onChange={(event) => setForm({ ...form, shouldFail: event.target.checked })}
-                  />
-                  <span>Simulate failure</span>
-                </label>
-                <button className="primary-button" type="submit" disabled={submitting || form.type.trim() === ""}>
-                  <Send size={16} />
-                  {submitting ? "Submitting" : "Submit Job"}
-                </button>
-              </form>
-            </section>
-
-            <section id="queue" className="panel queue-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Queue</h2>
-                  <p>In-memory capacity</p>
-                </div>
-              </div>
-              <div className="queue-meter">
-                <div>
-                  <strong>{queue.queued}</strong>
-                  <span>queued</span>
-                </div>
-                <div>
-                  <strong>{queue.capacity}</strong>
-                  <span>capacity</span>
-                </div>
-              </div>
-              <div className="meter-track">
-                <div className="meter-fill" style={{ width: `${queue.capacity ? (queue.queued / queue.capacity) * 100 : 0}%` }} />
-              </div>
-            </section>
-
-            <section className="panel detail-panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Job Detail</h2>
-                  <p>{selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}</p>
-                </div>
-              </div>
-              {selectedJob ? (
-                <JobDetail job={selectedJob} results={results.filter((result) => result.job_id === selectedJob.id)} />
-              ) : (
-                <EmptyState label="No jobs yet" />
-              )}
-            </section>
-          </aside>
-        </section>
+        {sectionContent[activeSection]}
       </main>
     </div>
+  );
+}
+
+function SummaryGrid({
+  summary
+}: {
+  summary: {
+    queued: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    postings: number;
+    workflows: number;
+    results: number;
+    activeWorkers: number;
+  };
+}) {
+  return (
+    <section className="summary-grid" aria-label="Summary">
+      <SummaryCard label="Queued" value={summary.queued} icon={<Clock3 size={20} />} tone="queued" />
+      <SummaryCard label="Running" value={summary.running} icon={<Play size={20} />} tone="running" />
+      <SummaryCard label="Succeeded" value={summary.succeeded} icon={<CheckCircle2 size={20} />} tone="succeeded" />
+      <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
+      <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
+      <SummaryCard label="Workflows" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
+      <SummaryCard label="Results" value={summary.results} icon={<Terminal size={20} />} tone="results" />
+      <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
+    </section>
+  );
+}
+
+function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function QueueMeter({ queue, fill }: { queue: QueueStatus; fill: number }) {
+  return (
+    <>
+      <div className="queue-meter">
+        <div>
+          <strong>{queue.queued}</strong>
+          <span>queued</span>
+        </div>
+        <div>
+          <strong>{queue.capacity}</strong>
+          <span>capacity</span>
+        </div>
+      </div>
+      <div className="meter-track">
+        <div className="meter-fill" style={{ width: `${fill}%` }} />
+      </div>
+    </>
+  );
+}
+
+function NaturalWorkflowForm({
+  prompt,
+  submitting,
+  onChange,
+  onSubmit
+}: {
+  prompt: string;
+  submitting: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="submit-form" onSubmit={onSubmit}>
+      <label>
+        <span>Request</span>
+        <textarea value={prompt} onChange={(event) => onChange(event.target.value)} rows={4} />
+      </label>
+      <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
+        <Send size={16} />
+        {submitting ? "Planning" : "Plan Workflow"}
+      </button>
+    </form>
+  );
+}
+
+function WorkflowForm({
+  form,
+  submitting,
+  onChange,
+  onSubmit
+}: {
+  form: WorkflowFormState;
+  submitting: boolean;
+  onChange: (value: WorkflowFormState) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="submit-form" onSubmit={onSubmit}>
+      <label>
+        <span>Name</span>
+        <input
+          value={form.name}
+          onChange={(event) => onChange({ ...form, name: event.target.value })}
+          placeholder="datadog-new-grad-monitor"
+        />
+      </label>
+      <label>
+        <span>Job Type</span>
+        <select value={form.jobType} onChange={(event) => onChange({ ...form, jobType: event.target.value })}>
+          <option value="jobs.monitor.new_grad">jobs.monitor.new_grad</option>
+          <option value="report.email">report.email</option>
+          <option value="video.transcode">video.transcode</option>
+          <option value="scrape.url">scrape.url</option>
+          <option value="data.pipeline">data.pipeline</option>
+        </select>
+      </label>
+      <div className="field-row">
+        <label>
+          <span>Interval</span>
+          <select
+            value={form.intervalSeconds}
+            onChange={(event) => onChange({ ...form, intervalSeconds: Number(event.target.value) })}
+          >
+            <option value={900}>15 minutes</option>
+            <option value={3600}>Hourly</option>
+            <option value={86400}>Daily</option>
+          </select>
+        </label>
+        <label>
+          <span>Attempts</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={form.maxAttempts}
+            onChange={(event) => onChange({ ...form, maxAttempts: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <label>
+        <span>Payload JSON</span>
+        <textarea
+          className="code-textarea"
+          value={form.payload}
+          rows={10}
+          spellCheck={false}
+          onChange={(event) => onChange({ ...form, payload: event.target.value })}
+        />
+      </label>
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={form.enabled}
+          onChange={(event) => onChange({ ...form, enabled: event.target.checked })}
+        />
+        <span>Enabled</span>
+      </label>
+      <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
+        <Send size={16} />
+        {submitting ? "Scheduling" : "Schedule Workflow"}
+      </button>
+    </form>
+  );
+}
+
+function NaturalJobForm({
+  prompt,
+  submitting,
+  onChange,
+  onSubmit
+}: {
+  prompt: string;
+  submitting: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="submit-form" onSubmit={onSubmit}>
+      <label>
+        <span>Request</span>
+        <textarea value={prompt} onChange={(event) => onChange(event.target.value)} rows={4} />
+      </label>
+      <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
+        <Send size={16} />
+        {submitting ? "Planning" : "Plan & Submit"}
+      </button>
+    </form>
+  );
+}
+
+function SubmitJobForm({
+  form,
+  submitting,
+  onChange,
+  onSubmit
+}: {
+  form: SubmitState;
+  submitting: boolean;
+  onChange: (value: SubmitState) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="submit-form" onSubmit={onSubmit}>
+      <label>
+        <span>Name</span>
+        <input
+          value={form.name}
+          onChange={(event) => onChange({ ...form, name: event.target.value })}
+          placeholder="demo-transcode"
+        />
+      </label>
+      <label>
+        <span>Type</span>
+        <select value={form.type} onChange={(event) => onChange({ ...form, type: event.target.value })}>
+          <option value="video.transcode">video.transcode</option>
+          <option value="scrape.url">scrape.url</option>
+          <option value="python.script">python.script</option>
+          <option value="ai.inference">ai.inference</option>
+          <option value="data.pipeline">data.pipeline</option>
+          <option value="report.email">report.email</option>
+        </select>
+      </label>
+      <div className="field-row">
+        <label>
+          <span>Duration</span>
+          <input
+            type="number"
+            min={100}
+            max={30000}
+            step={100}
+            value={form.durationMs}
+            onChange={(event) => onChange({ ...form, durationMs: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          <span>Attempts</span>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={form.maxAttempts}
+            onChange={(event) => onChange({ ...form, maxAttempts: Number(event.target.value) })}
+          />
+        </label>
+      </div>
+      <label className="checkbox-field">
+        <input
+          type="checkbox"
+          checked={form.shouldFail}
+          onChange={(event) => onChange({ ...form, shouldFail: event.target.checked })}
+        />
+        <span>Simulate failure</span>
+      </label>
+      <button className="primary-button" type="submit" disabled={submitting || form.type.trim() === ""}>
+        <Send size={16} />
+        {submitting ? "Submitting" : "Submit Job"}
+      </button>
+    </form>
   );
 }
 

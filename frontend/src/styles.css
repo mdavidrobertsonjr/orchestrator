@@ -30,14 +30,14 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
   background: #17202a;
   color: #f7f9fb;
-  padding: 24px 18px;
+  padding: 22px 16px;
 }
 
 .brand {
@@ -74,24 +74,49 @@ button {
 
 .nav-list {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .nav-item {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
+  gap: 11px;
+  min-height: 52px;
   padding: 0 12px;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: #c7d1dd;
-  text-decoration: none;
+  text-align: left;
 }
 
 .nav-item:hover,
 .nav-item.active {
   background: #243241;
   color: #ffffff;
+}
+
+.nav-item span,
+.nav-item strong,
+.nav-item small {
+  display: block;
+}
+
+.nav-item strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.nav-item small {
+  color: #8fa0b1;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.nav-item.active small,
+.nav-item:hover small {
+  color: #c7d1dd;
 }
 
 .main {
@@ -210,7 +235,7 @@ h2 {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(8, minmax(100px, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -269,17 +294,25 @@ h2 {
   color: #b42318;
 }
 
-.content-grid {
+.dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
   gap: 18px;
   align-items: start;
 }
 
-.primary-column,
-.side-column {
+.split-view {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  align-items: start;
   gap: 18px;
+}
+
+.command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 18px;
+  align-items: start;
 }
 
 .panel {
@@ -683,15 +716,27 @@ textarea {
   }
 
   .sidebar {
-    display: none;
+    padding: 16px 18px;
   }
 
-  .content-grid {
+  .brand {
+    margin-bottom: 16px;
+  }
+
+  .nav-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+  }
+
+  .nav-item {
+    flex: 0 0 156px;
+  }
+
+  .dashboard-grid,
+  .split-view,
+  .command-grid {
     grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -707,6 +752,11 @@ textarea {
 
   h1 {
     font-size: 26px;
+  }
+
+  .topbar-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .summary-grid,
