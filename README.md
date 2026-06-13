@@ -57,6 +57,28 @@ Stop Postgres when you are done:
 make postgres-stop
 ```
 
+## Demo Workflow
+
+With the backend running on `:8080`, seed and run a fake new-grad monitor:
+
+```bash
+make demo
+```
+
+The demo creates a workflow, triggers `Run now`, stores a normalized posting, records a workflow run, writes a monitor result, and logs a simulated alert. It is designed to show the core system without depending on live job-board data.
+
+## System Design
+
+The project is organized around production orchestration concerns:
+
+- **Control plane:** HTTP API for jobs, workflows, workflow runs, results, workers, queue state, postings, and natural-language commands.
+- **Queue and workers:** queued jobs are claimed by workers, executed through typed executors, retried when possible, and moved to `dead_letter` after attempts are exhausted.
+- **Leasing and recovery:** workers claim jobs with leases; a lease reclaimer requeues stale running jobs or dead-letters them when retry budget is exhausted.
+- **Idempotent scheduling:** scheduled workflow dispatches use `workflow_id + scheduled_for` idempotency keys so duplicate scheduler ticks do not create duplicate workflow runs.
+- **Workflow audit trail:** workflow definitions are separate from workflow runs; runs track trigger type, scheduled timestamp, idempotency key, linked job, and reconciled execution status.
+- **Persistence boundary:** in-memory stores support fast local development, while Postgres stores persist jobs, logs, workflows, workflow runs, postings, and results.
+- **Observability:** the dashboard shows queue depth, workers, job logs, workflow run history, posting matches, structured results, and alert status.
+
 ## English Job Requests
 
 Set an OpenAI API key before starting the backend to enable the dashboard's English job request form:
@@ -250,12 +272,11 @@ Do not hard-code the product around one niche. The job-monitoring flow should be
 
 Suggested platform steps after the first monitor workflow:
 
-1. Add scheduling so any job type can run daily, hourly, or near real-time without manual submission.
-2. Expand workflow run records with terminal status updates from worker completion events.
-3. Add a simple result store so workflow outputs can be queried by reports, alerts, and dashboards.
-4. Extend natural-language planning to produce validated payloads for multiple job types, not only demo jobs.
-5. Add task-graph support for multi-step workflows such as fetch data -> analyze -> rank -> report -> notify.
-6. Add finance workflows as a second demo family once scheduling and result storage exist.
+1. Add a command preview and confirmation step before natural-language commands create jobs or workflows.
+2. Add task-graph support for multi-step workflows such as fetch data -> analyze -> rank -> report -> notify.
+3. Add a production notification provider such as Resend or SES alongside simulated and SMTP delivery.
+4. Add finance workflows as a second demo family once task graphs are available.
+5. Add authentication and per-user workspace isolation before exposing a hosted demo publicly.
 
 Example Greenhouse monitor payload:
 

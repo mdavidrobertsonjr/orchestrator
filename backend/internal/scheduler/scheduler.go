@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -62,6 +63,16 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 			s.logWarn("skipping workflow with invalid interval", "workflow_id", workflow.ID, "interval_seconds", workflow.IntervalSeconds)
 			continue
 		}
+		scheduledFor := workflow.NextRunAt.UTC()
+		idempotencyKey := scheduledIdempotencyKey(workflow.ID, scheduledFor)
+		if s.runs != nil && idempotencyKey != "" {
+			if existing, err := s.runs.GetByIdempotencyKey(idempotencyKey); err == nil {
+				s.logInfo("scheduled workflow dispatch already recorded", "workflow_id", workflow.ID, "run_id", existing.ID, "scheduled_for", scheduledFor)
+				continue
+			} else if !errors.Is(err, workflowruns.ErrNotFound) {
+				return fmt.Errorf("check workflow run idempotency for workflow %s: %w", workflow.ID, err)
+			}
+		}
 
 		job, err := s.jobs.Create(jobs.CreateJobParams{
 			Name:        workflow.Name,
@@ -80,11 +91,13 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 
 		if s.runs != nil {
 			if _, err := s.runs.Create(workflowruns.CreateRunParams{
-				WorkflowID: workflow.ID,
-				JobID:      job.ID,
-				Trigger:    "schedule",
-				Status:     string(job.Status),
-				Metadata:   runMetadata(workflow, job.ID),
+				WorkflowID:     workflow.ID,
+				JobID:          job.ID,
+				Trigger:        "schedule",
+				Status:         string(job.Status),
+				ScheduledFor:   &scheduledFor,
+				IdempotencyKey: idempotencyKey,
+				Metadata:       runMetadata(workflow, job.ID),
 			}); err != nil {
 				return fmt.Errorf("create workflow run for workflow %s: %w", workflow.ID, err)
 			}
@@ -145,6 +158,10 @@ func scheduledMetadata(workflow *workflows.Workflow) map[string]string {
 
 func nextRun(now time.Time, interval time.Duration) time.Time {
 	return now.UTC().Add(interval)
+}
+
+func scheduledIdempotencyKey(workflowID string, scheduledFor time.Time) string {
+	return workflowID + ":" + scheduledFor.UTC().Format(time.RFC3339Nano)
 }
 
 func (s *Scheduler) logInfo(message string, args ...any) {

@@ -14,8 +14,10 @@ var ErrNotFound = errors.New("workflow run not found")
 type Store interface {
 	Create(params CreateRunParams) (*Run, error)
 	Get(id string) (*Run, error)
+	GetByIdempotencyKey(key string) (*Run, error)
 	List() ([]*Run, error)
 	ListByWorkflow(workflowID string) ([]*Run, error)
+	MarkStatusByJob(jobID string, status string) (*Run, error)
 }
 
 type MemoryStore struct {
@@ -34,20 +36,34 @@ func (s *MemoryStore) Create(params CreateRunParams) (*Run, error) {
 		status = "queued"
 	}
 	run := &Run{
-		ID:         newID(),
-		WorkflowID: params.WorkflowID,
-		JobID:      params.JobID,
-		Trigger:    params.Trigger,
-		Status:     status,
-		Metadata:   cloneMapString(params.Metadata),
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:             newID(),
+		WorkflowID:     params.WorkflowID,
+		JobID:          params.JobID,
+		Trigger:        params.Trigger,
+		Status:         status,
+		ScheduledFor:   cloneTime(params.ScheduledFor),
+		IdempotencyKey: params.IdempotencyKey,
+		Metadata:       cloneMapString(params.Metadata),
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.runs[run.ID] = run
 	return cloneRun(run), nil
+}
+
+func (s *MemoryStore) GetByIdempotencyKey(key string) (*Run, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, run := range s.runs {
+		if run.IdempotencyKey == key {
+			return cloneRun(run), nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemoryStore) Get(id string) (*Run, error) {
@@ -59,6 +75,21 @@ func (s *MemoryStore) Get(id string) (*Run, error) {
 		return nil, ErrNotFound
 	}
 	return cloneRun(run), nil
+}
+
+func (s *MemoryStore) MarkStatusByJob(jobID string, status string) (*Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, run := range s.runs {
+		if run.JobID != jobID {
+			continue
+		}
+		run.Status = status
+		run.UpdatedAt = time.Now().UTC()
+		return cloneRun(run), nil
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemoryStore) List() ([]*Run, error) {
@@ -98,8 +129,17 @@ func cloneRun(run *Run) *Run {
 		return nil
 	}
 	clone := *run
+	clone.ScheduledFor = cloneTime(run.ScheduledFor)
 	clone.Metadata = cloneMapString(run.Metadata)
 	return &clone
+}
+
+func cloneTime(in *time.Time) *time.Time {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
 }
 
 func cloneMapString(in map[string]string) map[string]string {

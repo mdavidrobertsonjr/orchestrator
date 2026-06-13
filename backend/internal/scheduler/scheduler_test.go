@@ -106,3 +106,40 @@ func TestTickSkipsFutureAndDisabledWorkflows(t *testing.T) {
 		t.Fatalf("expected no queued jobs, got %d", queue.Len())
 	}
 }
+
+func TestTickIsIdempotentForScheduledTimestamp(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	runStore := workflowruns.NewMemoryStore()
+	jobStore := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(4)
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	dueAt := now.Add(-time.Minute)
+
+	if _, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "due",
+		JobType:         "demo.sleep",
+		Enabled:         true,
+		IntervalSeconds: 60,
+		NextRunAt:       &dueAt,
+	}); err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	scheduler := NewWithRuns(Config{}, workflowStore, runStore, jobStore, queue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := scheduler.Tick(t.Context(), now); err != nil {
+		t.Fatalf("first tick: %v", err)
+	}
+	if err := scheduler.Tick(t.Context(), now); err != nil {
+		t.Fatalf("second tick: %v", err)
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("expected one queued job after duplicate tick, got %d", queue.Len())
+	}
+	runs, err := runStore.List()
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected one workflow run, got %#v", runs)
+	}
+}

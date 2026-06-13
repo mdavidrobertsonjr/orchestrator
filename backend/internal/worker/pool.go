@@ -10,18 +10,22 @@ import (
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflowruns"
 )
 
 type PoolConfig struct {
-	WorkerCount       int
-	PollDelay         time.Duration
-	HeartbeatInterval time.Duration
+	WorkerCount        int
+	PollDelay          time.Duration
+	HeartbeatInterval  time.Duration
+	LeaseDuration      time.Duration
+	LeaseSweepInterval time.Duration
 }
 
 type Pool struct {
 	config   PoolConfig
 	queue    jobs.Queue
 	store    jobs.Store
+	runs     workflowruns.Store
 	executor Executor
 	registry workers.Registry
 	logger   *slog.Logger
@@ -29,6 +33,10 @@ type Pool struct {
 }
 
 func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Executor, registry workers.Registry, logger *slog.Logger) *Pool {
+	return NewPoolWithRuns(config, queue, store, nil, executor, registry, logger)
+}
+
+func NewPoolWithRuns(config PoolConfig, queue jobs.Queue, store jobs.Store, runStore workflowruns.Store, executor Executor, registry workers.Registry, logger *slog.Logger) *Pool {
 	if config.WorkerCount <= 0 {
 		config.WorkerCount = 1
 	}
@@ -38,11 +46,18 @@ func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Exe
 	if config.HeartbeatInterval <= 0 {
 		config.HeartbeatInterval = 5 * time.Second
 	}
+	if config.LeaseDuration <= 0 {
+		config.LeaseDuration = 2 * time.Minute
+	}
+	if config.LeaseSweepInterval <= 0 {
+		config.LeaseSweepInterval = 15 * time.Second
+	}
 
 	return &Pool{
 		config:   config,
 		queue:    queue,
 		store:    store,
+		runs:     runStore,
 		executor: executor,
 		registry: registry,
 		logger:   logger,
@@ -58,6 +73,11 @@ func (p *Pool) Start(ctx context.Context) {
 			p.runWorker(ctx, workerID)
 		}()
 	}
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.leaseReclaimer(ctx)
+	}()
 }
 
 func (p *Pool) Wait() {
@@ -104,7 +124,7 @@ func (p *Pool) runWorker(ctx context.Context, workerID int) {
 			logger.Error("failed to mark worker running", "job_id", jobID, "error", err)
 		}
 
-		p.execute(ctx, logger, jobID)
+		p.execute(ctx, logger, id, jobID)
 	}
 }
 
@@ -124,54 +144,100 @@ func (p *Pool) heartbeatLoop(ctx context.Context, workerID string, logger *slog.
 	}
 }
 
-func (p *Pool) execute(ctx context.Context, logger *slog.Logger, jobID string) {
-	job, err := p.store.MarkRunning(jobID)
+func (p *Pool) execute(ctx context.Context, logger *slog.Logger, workerID string, jobID string) {
+	job, err := p.store.MarkRunningWithLease(jobID, workerID, time.Now().UTC().Add(p.config.LeaseDuration))
 	if err != nil {
 		logger.Error("failed to mark job running", "job_id", jobID, "error", err)
 		return
 	}
-
-	jobLogger := logger.With("job_id", job.ID, "attempt", job.Attempts)
-	jobLogger.Info("job execution started", "type", job.Type)
+	jl := jobLogger(logger, job)
+	p.markRunStatus(job.ID, string(jobs.StatusRunning), jl)
+	jl.Info("job execution started", "type", job.Type)
 
 	logf := func(message string) {
 		if err := p.store.AppendLog(job.ID, message); err != nil {
-			jobLogger.Error("failed to append job log", "error", err)
+			jl.Error("failed to append job log", "error", err)
 		}
-		jobLogger.Info(message)
+		jl.Info(message)
 	}
 
 	if err := p.executor.Execute(ctx, job, logf); err != nil {
-		p.handleFailure(ctx, jobLogger, job, err)
+		p.handleFailure(ctx, jl, job, err)
 		return
 	}
 
 	if _, err := p.store.MarkSucceeded(job.ID, "job succeeded"); err != nil {
-		jobLogger.Error("failed to mark job succeeded", "error", err)
+		jl.Error("failed to mark job succeeded", "error", err)
 		return
 	}
-	jobLogger.Info("job execution succeeded")
+	p.markRunStatus(job.ID, string(jobs.StatusSucceeded), jl)
+	jl.Info("job execution succeeded")
 }
 
 func (p *Pool) handleFailure(ctx context.Context, logger *slog.Logger, job *jobs.Job, execErr error) {
 	if job.Attempts < job.MaxAttempts {
-		if err := p.store.AppendLog(job.ID, "job attempt failed; requeueing: "+execErr.Error()); err != nil {
-			logger.Error("failed to append retry log", "error", err)
+		if _, err := p.store.MarkQueued(job.ID, "job attempt failed; requeueing: "+execErr.Error()); err != nil {
+			logger.Error("failed to mark retryable job queued", "error", err)
+			_, _ = p.store.MarkFailed(job.ID, execErr.Error())
+			p.markRunStatus(job.ID, string(jobs.StatusFailed), logger)
+			return
 		}
 		if err := p.queue.Enqueue(ctx, job.ID); err != nil {
 			logger.Error("failed to requeue job", "error", err)
 			_, _ = p.store.MarkFailed(job.ID, execErr.Error())
+			p.markRunStatus(job.ID, string(jobs.StatusFailed), logger)
 			return
 		}
+		p.markRunStatus(job.ID, string(jobs.StatusQueued), logger)
 		logger.Warn("job execution failed; retry queued", "error", execErr)
 		return
 	}
 
-	if _, err := p.store.MarkFailed(job.ID, execErr.Error()); err != nil {
+	if _, err := p.store.MarkDeadLetter(job.ID, execErr.Error()); err != nil {
 		logger.Error("failed to mark job failed", "error", err)
 		return
 	}
+	p.markRunStatus(job.ID, string(jobs.StatusDeadLetter), logger)
 	logger.Error("job execution failed", "error", execErr)
+}
+
+func (p *Pool) leaseReclaimer(ctx context.Context) {
+	ticker := time.NewTicker(p.config.LeaseSweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			reclaimed, err := p.store.RequeueExpiredLeases(now)
+			if err != nil {
+				p.logger.Error("failed to reclaim expired job leases", "error", err)
+				continue
+			}
+			for _, job := range reclaimed {
+				p.markRunStatus(job.ID, string(job.Status), p.logger.With("job_id", job.ID))
+				if job.Status == jobs.StatusQueued {
+					if err := p.queue.Enqueue(ctx, job.ID); err != nil {
+						p.logger.Error("failed to requeue expired lease job", "job_id", job.ID, "error", err)
+					}
+				}
+			}
+		}
+	}
+}
+
+func (p *Pool) markRunStatus(jobID string, status string, logger *slog.Logger) {
+	if p.runs == nil {
+		return
+	}
+	if _, err := p.runs.MarkStatusByJob(jobID, status); err != nil && !errors.Is(err, workflowruns.ErrNotFound) {
+		logger.Error("failed to update workflow run status", "status", status, "error", err)
+	}
+}
+
+func jobLogger(logger *slog.Logger, job *jobs.Job) *slog.Logger {
+	return logger.With("job_id", job.ID, "attempt", job.Attempts)
 }
 
 func sleep(ctx context.Context, duration time.Duration) {

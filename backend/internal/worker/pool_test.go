@@ -11,6 +11,7 @@ import (
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflowruns"
 )
 
 func TestPoolExecutesJobSuccessfully(t *testing.T) {
@@ -83,7 +84,7 @@ func TestPoolRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
-func TestPoolMarksJobFailedAfterAttemptsExhausted(t *testing.T) {
+func TestPoolMovesJobToDeadLetterAfterAttemptsExhausted(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)
 	registry := workers.NewMemoryRegistry()
@@ -111,12 +112,48 @@ func TestPoolMarksJobFailedAfterAttemptsExhausted(t *testing.T) {
 		pool.Wait()
 	}()
 
-	got := waitForJobStatus(t, store, job.ID, jobs.StatusFailed)
+	got := waitForJobStatus(t, store, job.ID, jobs.StatusDeadLetter)
 	if got.Attempts != 2 {
 		t.Fatalf("expected 2 attempts, got %d", got.Attempts)
 	}
 	if got.Error != "boom" {
 		t.Fatalf("expected final error boom, got %q", got.Error)
+	}
+}
+
+func TestPoolReconcilesWorkflowRunStatus(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	runStore := workflowruns.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	registry := workers.NewMemoryRegistry()
+	executor := &fakeExecutor{}
+
+	job, err := store.Create(jobs.CreateJobParams{Name: "demo", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := runStore.Create(workflowruns.CreateRunParams{WorkflowID: "workflow-1", JobID: job.ID, Trigger: "manual"}); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if err := queue.Enqueue(t.Context(), job.ID); err != nil {
+		t.Fatalf("enqueue job: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := NewPoolWithRuns(PoolConfig{WorkerCount: 1, PollDelay: time.Millisecond, HeartbeatInterval: time.Millisecond}, queue, store, runStore, executor, registry, testLogger())
+	pool.Start(ctx)
+	defer func() {
+		cancel()
+		pool.Wait()
+	}()
+
+	waitForJobStatus(t, store, job.ID, jobs.StatusSucceeded)
+	runs, err := runStore.ListByWorkflow("workflow-1")
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != string(jobs.StatusSucceeded) {
+		t.Fatalf("expected succeeded run, got %#v", runs)
 	}
 }
 

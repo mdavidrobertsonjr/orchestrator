@@ -5,11 +5,12 @@ import "time"
 type Status string
 
 const (
-	StatusQueued    Status = "queued"
-	StatusRunning   Status = "running"
-	StatusSucceeded Status = "succeeded"
-	StatusFailed    Status = "failed"
-	StatusCanceled  Status = "canceled"
+	StatusQueued     Status = "queued"
+	StatusRunning    Status = "running"
+	StatusSucceeded  Status = "succeeded"
+	StatusFailed     Status = "failed"
+	StatusDeadLetter Status = "dead_letter"
+	StatusCanceled   Status = "canceled"
 )
 
 type Job struct {
@@ -26,6 +27,8 @@ type Job struct {
 	UpdatedAt   time.Time         `json:"updated_at"`
 	StartedAt   *time.Time        `json:"started_at,omitempty"`
 	FinishedAt  *time.Time        `json:"finished_at,omitempty"`
+	LeaseOwner  string            `json:"lease_owner,omitempty"`
+	LeaseUntil  *time.Time        `json:"lease_until,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 

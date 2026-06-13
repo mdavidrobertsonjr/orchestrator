@@ -85,11 +85,11 @@ func main() {
 		return
 	}
 
-	pool := worker.NewPool(worker.PoolConfig{
+	pool := worker.NewPoolWithRuns(worker.PoolConfig{
 		WorkerCount:       cfg.WorkerCount,
 		PollDelay:         250 * time.Millisecond,
 		HeartbeatInterval: 5 * time.Second,
-	}, queue, store, executor, registry, logger)
+	}, queue, store, runStore, executor, registry, logger)
 	pool.Start(ctx)
 
 	scheduled := scheduler.NewWithRuns(scheduler.Config{

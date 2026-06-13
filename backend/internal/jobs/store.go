@@ -16,8 +16,12 @@ type Store interface {
 	Get(id string) (*Job, error)
 	List() ([]*Job, error)
 	MarkRunning(id string) (*Job, error)
+	MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error)
+	MarkQueued(id string, message string) (*Job, error)
 	MarkSucceeded(id string, message string) (*Job, error)
 	MarkFailed(id string, errMessage string) (*Job, error)
+	MarkDeadLetter(id string, errMessage string) (*Job, error)
+	RequeueExpiredLeases(now time.Time) ([]*Job, error)
 	AppendLog(id string, message string) error
 }
 
@@ -90,11 +94,18 @@ func (s *MemoryStore) List() ([]*Job, error) {
 }
 
 func (s *MemoryStore) MarkRunning(id string) (*Job, error) {
+	return s.MarkRunningWithLease(id, "", time.Time{})
+}
+
+func (s *MemoryStore) MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	job, ok := s.jobs[id]
 	if !ok {
+		return nil, ErrNotFound
+	}
+	if job.Status != StatusQueued {
 		return nil, ErrNotFound
 	}
 
@@ -105,6 +116,13 @@ func (s *MemoryStore) MarkRunning(id string) (*Job, error) {
 	job.StartedAt = &now
 	job.FinishedAt = nil
 	job.Error = ""
+	job.LeaseOwner = workerID
+	if !leaseUntil.IsZero() {
+		leaseUntil = leaseUntil.UTC()
+		job.LeaseUntil = &leaseUntil
+	} else {
+		job.LeaseUntil = nil
+	}
 	job.Logs = append(job.Logs, LogEntry{Time: now, Message: "job started"})
 
 	return cloneJob(job), nil
@@ -114,8 +132,61 @@ func (s *MemoryStore) MarkSucceeded(id string, message string) (*Job, error) {
 	return s.finish(id, StatusSucceeded, "", message)
 }
 
+func (s *MemoryStore) MarkQueued(id string, message string) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	job.Status = StatusQueued
+	job.Error = ""
+	job.UpdatedAt = now
+	job.FinishedAt = nil
+	job.LeaseOwner = ""
+	job.LeaseUntil = nil
+	job.Logs = append(job.Logs, LogEntry{Time: now, Message: message})
+	return cloneJob(job), nil
+}
+
 func (s *MemoryStore) MarkFailed(id string, errMessage string) (*Job, error) {
 	return s.finish(id, StatusFailed, errMessage, "job failed: "+errMessage)
+}
+
+func (s *MemoryStore) MarkDeadLetter(id string, errMessage string) (*Job, error) {
+	return s.finish(id, StatusDeadLetter, errMessage, "job moved to dead letter: "+errMessage)
+}
+
+func (s *MemoryStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now = now.UTC()
+	var out []*Job
+	for _, job := range s.jobs {
+		if job.Status != StatusRunning || job.LeaseUntil == nil || job.LeaseUntil.After(now) {
+			continue
+		}
+		if job.Attempts >= job.MaxAttempts {
+			job.Status = StatusDeadLetter
+			job.Error = "worker lease expired"
+			job.FinishedAt = &now
+			job.Logs = append(job.Logs, LogEntry{Time: now, Message: "job moved to dead letter: worker lease expired"})
+		} else {
+			job.Status = StatusQueued
+			job.Error = ""
+			job.FinishedAt = nil
+			job.Logs = append(job.Logs, LogEntry{Time: now, Message: "worker lease expired; job requeued"})
+		}
+		job.LeaseOwner = ""
+		job.LeaseUntil = nil
+		job.UpdatedAt = now
+		out = append(out, cloneJob(job))
+	}
+	return out, nil
 }
 
 func (s *MemoryStore) AppendLog(id string, message string) error {
@@ -147,6 +218,8 @@ func (s *MemoryStore) finish(id string, status Status, errMessage string, logMes
 	job.Error = errMessage
 	job.UpdatedAt = now
 	job.FinishedAt = &now
+	job.LeaseOwner = ""
+	job.LeaseUntil = nil
 	job.Logs = append(job.Logs, LogEntry{Time: now, Message: logMessage})
 
 	return cloneJob(job), nil
@@ -177,6 +250,10 @@ func cloneJob(job *Job) *Job {
 	if job.FinishedAt != nil {
 		finished := *job.FinishedAt
 		clone.FinishedAt = &finished
+	}
+	if job.LeaseUntil != nil {
+		leaseUntil := *job.LeaseUntil
+		clone.LeaseUntil = &leaseUntil
 	}
 
 	return &clone

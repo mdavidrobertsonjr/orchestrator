@@ -49,8 +49,13 @@ CREATE TABLE IF NOT EXISTS jobs (
 	created_at timestamptz NOT NULL,
 	updated_at timestamptz NOT NULL,
 	started_at timestamptz,
-	finished_at timestamptz
+	finished_at timestamptz,
+	lease_owner text NOT NULL DEFAULT '',
+	lease_until timestamptz
 );
+
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lease_owner text NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS lease_until timestamptz;
 
 CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs (status);
 CREATE INDEX IF NOT EXISTS jobs_created_at_idx ON jobs (created_at DESC);
@@ -145,7 +150,7 @@ func (s *PostgresStore) List() ([]*Job, error) {
 	defer cancel()
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at
+SELECT id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
 FROM jobs
 ORDER BY created_at DESC
 `)
@@ -175,14 +180,22 @@ ORDER BY created_at DESC
 }
 
 func (s *PostgresStore) MarkRunning(id string) (*Job, error) {
+	return s.MarkRunningWithLease(id, "", time.Time{})
+}
+
+func (s *PostgresStore) MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error) {
 	now := time.Now().UTC()
+	var lease any
+	if !leaseUntil.IsZero() {
+		lease = leaseUntil.UTC()
+	}
 	return s.transition(id, "job started", func(ctx context.Context, tx *sql.Tx) (*Job, error) {
 		return scanJob(tx.QueryRowContext(ctx, `
 UPDATE jobs
-SET status = $2, attempts = attempts + 1, updated_at = $3, started_at = $3, finished_at = NULL, error = ''
-WHERE id = $1
-RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at
-`, id, StatusRunning, now))
+SET status = $2, attempts = attempts + 1, updated_at = $3, started_at = $3, finished_at = NULL, error = '', lease_owner = $4, lease_until = $5
+WHERE id = $1 AND status = $6
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, id, StatusRunning, now, workerID, lease, StatusQueued))
 	})
 }
 
@@ -190,8 +203,77 @@ func (s *PostgresStore) MarkSucceeded(id string, message string) (*Job, error) {
 	return s.finish(id, StatusSucceeded, "", message)
 }
 
+func (s *PostgresStore) MarkQueued(id string, message string) (*Job, error) {
+	now := time.Now().UTC()
+	return s.transition(id, message, func(ctx context.Context, tx *sql.Tx) (*Job, error) {
+		return scanJob(tx.QueryRowContext(ctx, `
+UPDATE jobs
+SET status = $2, error = '', updated_at = $3, finished_at = NULL, lease_owner = '', lease_until = NULL
+WHERE id = $1
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, id, StatusQueued, now))
+	})
+}
+
 func (s *PostgresStore) MarkFailed(id string, errMessage string) (*Job, error) {
 	return s.finish(id, StatusFailed, errMessage, "job failed: "+errMessage)
+}
+
+func (s *PostgresStore) MarkDeadLetter(id string, errMessage string) (*Job, error) {
+	return s.finish(id, StatusDeadLetter, errMessage, "job moved to dead letter: "+errMessage)
+}
+
+func (s *PostgresStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
+	now = now.UTC()
+	ctx, cancel := s.context()
+	defer cancel()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(tx)
+
+	rows, err := tx.QueryContext(ctx, `
+UPDATE jobs
+SET status = CASE WHEN attempts >= max_attempts THEN $2 ELSE $3 END,
+	error = CASE WHEN attempts >= max_attempts THEN 'worker lease expired' ELSE '' END,
+	updated_at = $4,
+	finished_at = CASE WHEN attempts >= max_attempts THEN $4 ELSE NULL END,
+	lease_owner = '',
+	lease_until = NULL
+WHERE status = $1 AND lease_until IS NOT NULL AND lease_until <= $4
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, StatusRunning, StatusDeadLetter, StatusQueued, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*Job
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		message := "worker lease expired; job requeued"
+		if job.Status == StatusDeadLetter {
+			message = "job moved to dead letter: worker lease expired"
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO job_logs (job_id, time, message) VALUES ($1, $2, $3)
+`, job.ID, now, message); err != nil {
+			return nil, err
+		}
+		out = append(out, cloneJob(job))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *PostgresStore) AppendLog(id string, message string) error {
@@ -233,9 +315,9 @@ func (s *PostgresStore) finish(id string, status Status, errMessage string, logM
 	return s.transition(id, logMessage, func(ctx context.Context, tx *sql.Tx) (*Job, error) {
 		return scanJob(tx.QueryRowContext(ctx, `
 UPDATE jobs
-SET status = $2, error = $3, updated_at = $4, finished_at = $4
+SET status = $2, error = $3, updated_at = $4, finished_at = $4, lease_owner = '', lease_until = NULL
 WHERE id = $1
-RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
 `, id, status, errMessage, now))
 	})
 }
@@ -279,7 +361,7 @@ INSERT INTO job_logs (job_id, time, message) VALUES ($1, $2, $3)
 
 func (s *PostgresStore) get(ctx context.Context, q queryer, id string) (*Job, error) {
 	job, err := scanJob(q.QueryRowContext(ctx, `
-SELECT id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at
+SELECT id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
 FROM jobs
 WHERE id = $1
 `, id))
@@ -340,6 +422,7 @@ func scanJob(scanner jobScanner) (*Job, error) {
 	var metadata []byte
 	var startedAt sql.NullTime
 	var finishedAt sql.NullTime
+	var leaseUntil sql.NullTime
 
 	err := scanner.Scan(
 		&job.ID,
@@ -355,6 +438,8 @@ func scanJob(scanner jobScanner) (*Job, error) {
 		&job.UpdatedAt,
 		&startedAt,
 		&finishedAt,
+		&job.LeaseOwner,
+		&leaseUntil,
 	)
 	if err != nil {
 		return nil, err
@@ -376,6 +461,9 @@ func scanJob(scanner jobScanner) (*Job, error) {
 	}
 	if finishedAt.Valid {
 		job.FinishedAt = &finishedAt.Time
+	}
+	if leaseUntil.Valid {
+		job.LeaseUntil = &leaseUntil.Time
 	}
 
 	return &job, nil

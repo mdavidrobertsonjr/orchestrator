@@ -40,14 +40,20 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 	job_id text NOT NULL,
 	trigger text NOT NULL,
 	status text NOT NULL,
+	scheduled_for timestamptz,
+	idempotency_key text NOT NULL DEFAULT '',
 	metadata jsonb,
 	created_at timestamptz NOT NULL,
 	updated_at timestamptz NOT NULL
 );
 
+ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS scheduled_for timestamptz;
+ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS idempotency_key text NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS workflow_runs_created_at_idx ON workflow_runs (created_at DESC);
 CREATE INDEX IF NOT EXISTS workflow_runs_workflow_id_idx ON workflow_runs (workflow_id);
 CREATE INDEX IF NOT EXISTS workflow_runs_job_id_idx ON workflow_runs (job_id);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_runs_idempotency_key_idx ON workflow_runs (idempotency_key) WHERE idempotency_key <> '';
 `)
 	return err
 }
@@ -68,10 +74,10 @@ func (s *PostgresStore) Create(params CreateRunParams) (*Run, error) {
 
 	return scanRun(s.db.QueryRowContext(ctx, `
 INSERT INTO workflow_runs (
-	id, workflow_id, job_id, trigger, status, metadata, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-RETURNING id, workflow_id, job_id, trigger, status, metadata, created_at, updated_at
-`, newID(), params.WorkflowID, params.JobID, params.Trigger, status, metadata, now))
+	id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+RETURNING id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
+`, newID(), params.WorkflowID, params.JobID, params.Trigger, status, params.ScheduledFor, params.IdempotencyKey, metadata, now))
 }
 
 func (s *PostgresStore) Get(id string) (*Run, error) {
@@ -79,10 +85,28 @@ func (s *PostgresStore) Get(id string) (*Run, error) {
 	defer cancel()
 
 	run, err := scanRun(s.db.QueryRowContext(ctx, `
-SELECT id, workflow_id, job_id, trigger, status, metadata, created_at, updated_at
+SELECT id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
 FROM workflow_runs
 WHERE id = $1
 `, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return run, nil
+}
+
+func (s *PostgresStore) GetByIdempotencyKey(key string) (*Run, error) {
+	ctx, cancel := s.context()
+	defer cancel()
+
+	run, err := scanRun(s.db.QueryRowContext(ctx, `
+SELECT id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
+FROM workflow_runs
+WHERE idempotency_key = $1
+`, key))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -97,7 +121,7 @@ func (s *PostgresStore) List() ([]*Run, error) {
 	defer cancel()
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, workflow_id, job_id, trigger, status, metadata, created_at, updated_at
+SELECT id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
 FROM workflow_runs
 ORDER BY created_at DESC
 `)
@@ -113,7 +137,7 @@ func (s *PostgresStore) ListByWorkflow(workflowID string) ([]*Run, error) {
 	defer cancel()
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, workflow_id, job_id, trigger, status, metadata, created_at, updated_at
+SELECT id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
 FROM workflow_runs
 WHERE workflow_id = $1
 ORDER BY created_at DESC
@@ -123,6 +147,26 @@ ORDER BY created_at DESC
 	}
 	defer rows.Close()
 	return scanRunRows(rows)
+}
+
+func (s *PostgresStore) MarkStatusByJob(jobID string, status string) (*Run, error) {
+	now := time.Now().UTC()
+	ctx, cancel := s.context()
+	defer cancel()
+
+	run, err := scanRun(s.db.QueryRowContext(ctx, `
+UPDATE workflow_runs
+SET status = $2, updated_at = $3
+WHERE job_id = $1
+RETURNING id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
+`, jobID, status, now))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return run, nil
 }
 
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {
@@ -148,12 +192,15 @@ type runScanner interface {
 func scanRun(scanner runScanner) (*Run, error) {
 	var run Run
 	var metadata []byte
+	var scheduledFor sql.NullTime
 	err := scanner.Scan(
 		&run.ID,
 		&run.WorkflowID,
 		&run.JobID,
 		&run.Trigger,
 		&run.Status,
+		&scheduledFor,
+		&run.IdempotencyKey,
 		&metadata,
 		&run.CreatedAt,
 		&run.UpdatedAt,
@@ -165,6 +212,9 @@ func scanRun(scanner runScanner) (*Run, error) {
 		if err := json.Unmarshal(metadata, &run.Metadata); err != nil {
 			return nil, err
 		}
+	}
+	if scheduledFor.Valid {
+		run.ScheduledFor = &scheduledFor.Time
 	}
 	return &run, nil
 }

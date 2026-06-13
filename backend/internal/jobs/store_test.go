@@ -3,6 +3,7 @@ package jobs
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestMemoryStoreCreatesAndReturnsJobCopies(t *testing.T) {
@@ -48,6 +49,44 @@ func TestMemoryStoreCreatesAndReturnsJobCopies(t *testing.T) {
 	}
 	if got.Logs[0].Message != "job queued" {
 		t.Fatalf("store logs were mutated through returned job: %#v", got.Logs)
+	}
+}
+
+func TestMemoryStoreRequeuesExpiredLease(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep", MaxAttempts: 2})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunningWithLease(job.ID, "worker-1", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("mark running with lease: %v", err)
+	}
+
+	reclaimed, err := store.RequeueExpiredLeases(time.Now())
+	if err != nil {
+		t.Fatalf("requeue expired leases: %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].Status != StatusQueued {
+		t.Fatalf("expected requeued job, got %#v", reclaimed)
+	}
+}
+
+func TestMemoryStoreDeadLettersExpiredLeaseAfterAttempts(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep", MaxAttempts: 1})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunningWithLease(job.ID, "worker-1", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("mark running with lease: %v", err)
+	}
+
+	reclaimed, err := store.RequeueExpiredLeases(time.Now())
+	if err != nil {
+		t.Fatalf("requeue expired leases: %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].Status != StatusDeadLetter {
+		t.Fatalf("expected dead-lettered job, got %#v", reclaimed)
 	}
 }
 

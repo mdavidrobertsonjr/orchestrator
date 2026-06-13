@@ -493,6 +493,7 @@ td span {
 }
 
 .status-pill.failed,
+.status-pill.dead_letter,
 .status-pill.canceled,
 .status-pill.worker-stopped {
   background: #ffe8e8;

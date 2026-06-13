@@ -1,6 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
-export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "dead_letter" | "canceled";
 
 export type Job = {
   id: string;
