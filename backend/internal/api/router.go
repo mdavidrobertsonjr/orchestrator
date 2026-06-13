@@ -15,6 +15,7 @@ import (
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflowruns"
 	"orchestrator/backend/internal/workflows"
 )
 
@@ -33,6 +34,7 @@ type Config struct {
 	Planner   llm.Planner
 	Postings  postings.Store
 	Workflows workflows.Store
+	Runs      workflowruns.Store
 	Results   results.Store
 }
 
@@ -44,6 +46,7 @@ type Server struct {
 	planner   llm.Planner
 	postings  postings.Store
 	workflows workflows.Store
+	runs      workflowruns.Store
 	results   results.Store
 }
 
@@ -56,6 +59,7 @@ func NewRouter(config Config) http.Handler {
 		planner:   config.Planner,
 		postings:  config.Postings,
 		workflows: config.Workflows,
+		runs:      config.Runs,
 		results:   config.Results,
 	}
 
@@ -76,6 +80,8 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
 	mux.HandleFunc("POST /v1/workflows/{id}/run", server.handleRunWorkflow)
+	mux.HandleFunc("GET /v1/workflow-runs", server.handleListWorkflowRuns)
+	mux.HandleFunc("GET /v1/workflow-runs/{id}", server.handleGetWorkflowRun)
 	mux.HandleFunc("GET /v1/results", server.handleListResults)
 	mux.HandleFunc("GET /v1/results/{id}", server.handleGetResult)
 	if config.Static != "" {
@@ -594,6 +600,23 @@ func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.runs != nil {
+		if _, err := s.runs.Create(workflowruns.CreateRunParams{
+			WorkflowID: workflow.ID,
+			JobID:      job.ID,
+			Trigger:    "manual",
+			Status:     string(job.Status),
+			Metadata: map[string]string{
+				"workflow_name": workflow.Name,
+				"job_id":        job.ID,
+			},
+		}); err != nil {
+			s.logger.Error("failed to create manual workflow run", "workflow_id", workflow.ID, "job_id", job.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to create workflow run")
+			return
+		}
+	}
+
 	s.logger.Info("workflow manually dispatched", "workflow_id", workflow.ID, "job_id", job.ID)
 	writeJSON(w, http.StatusAccepted, job)
 }
@@ -626,6 +649,50 @@ func (s *Server) handleListWorkflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"workflows": workflows,
 	})
+}
+
+func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	if s.runs == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"runs": []*workflowruns.Run{}})
+		return
+	}
+
+	var (
+		runs []*workflowruns.Run
+		err  error
+	)
+	if workflowID := strings.TrimSpace(r.URL.Query().Get("workflow_id")); workflowID != "" {
+		runs, err = s.runs.ListByWorkflow(workflowID)
+	} else {
+		runs, err = s.runs.List()
+	}
+	if err != nil {
+		s.logger.Error("failed to list workflow runs", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list workflow runs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
+func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	if s.runs == nil {
+		writeError(w, http.StatusNotFound, "workflow run not found")
+		return
+	}
+
+	run, err := s.runs.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, workflowruns.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow run not found")
+			return
+		}
+		s.logger.Error("failed to get workflow run", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get workflow run")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, run)
 }
 
 func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {

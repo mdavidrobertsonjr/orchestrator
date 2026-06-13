@@ -18,6 +18,7 @@ import (
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflowruns"
 	"orchestrator/backend/internal/workflows"
 )
 
@@ -667,6 +668,7 @@ func TestUpdateWorkflowValidation(t *testing.T) {
 func TestRunWorkflowCreatesQueuedJob(t *testing.T) {
 	workflowStore := workflows.NewMemoryStore()
 	jobStore := jobs.NewMemoryStore()
+	runStore := workflowruns.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)
 	router := NewRouter(Config{
 		Queue:     queue,
@@ -674,6 +676,7 @@ func TestRunWorkflowCreatesQueuedJob(t *testing.T) {
 		Workers:   workers.NewMemoryRegistry(),
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Workflows: workflowStore,
+		Runs:      runStore,
 	})
 
 	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
@@ -709,6 +712,47 @@ func TestRunWorkflowCreatesQueuedJob(t *testing.T) {
 	}
 	if queue.Len() != 1 {
 		t.Fatalf("expected queued job, got queue length %d", queue.Len())
+	}
+
+	runs, err := runStore.ListByWorkflow(workflow.ID)
+	if err != nil {
+		t.Fatalf("list workflow runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].JobID != job.ID || runs[0].Trigger != "manual" {
+		t.Fatalf("expected manual workflow run for job %q, got %#v", job.ID, runs)
+	}
+}
+
+func TestListWorkflowRuns(t *testing.T) {
+	runStore := workflowruns.NewMemoryStore()
+	run, err := runStore.Create(workflowruns.CreateRunParams{WorkflowID: "workflow-1", JobID: "job-1", Trigger: "manual"})
+	if err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+	router := NewRouter(Config{
+		Queue:   jobs.NewMemoryQueue(2),
+		Store:   jobs.NewMemoryStore(),
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runs:    runStore,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workflow-runs?workflow_id=workflow-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Runs []workflowruns.Run `json:"runs"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Runs) != 1 || response.Runs[0].ID != run.ID {
+		t.Fatalf("expected workflow run %q, got %#v", run.ID, response.Runs)
 	}
 }
 

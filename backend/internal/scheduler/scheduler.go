@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workflowruns"
 	"orchestrator/backend/internal/workflows"
 )
 
@@ -17,18 +18,24 @@ type Config struct {
 type Scheduler struct {
 	config    Config
 	workflows workflows.Store
+	runs      workflowruns.Store
 	jobs      jobs.Store
 	queue     jobs.Queue
 	logger    *slog.Logger
 }
 
 func New(config Config, workflowStore workflows.Store, jobStore jobs.Store, queue jobs.Queue, logger *slog.Logger) *Scheduler {
+	return NewWithRuns(config, workflowStore, nil, jobStore, queue, logger)
+}
+
+func NewWithRuns(config Config, workflowStore workflows.Store, runStore workflowruns.Store, jobStore jobs.Store, queue jobs.Queue, logger *slog.Logger) *Scheduler {
 	if config.PollInterval <= 0 {
 		config.PollInterval = 30 * time.Second
 	}
 	return &Scheduler{
 		config:    config,
 		workflows: workflowStore,
+		runs:      runStore,
 		jobs:      jobStore,
 		queue:     queue,
 		logger:    logger,
@@ -71,6 +78,18 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 			return fmt.Errorf("enqueue scheduled job %s for workflow %s: %w", job.ID, workflow.ID, err)
 		}
 
+		if s.runs != nil {
+			if _, err := s.runs.Create(workflowruns.CreateRunParams{
+				WorkflowID: workflow.ID,
+				JobID:      job.ID,
+				Trigger:    "schedule",
+				Status:     string(job.Status),
+				Metadata:   runMetadata(workflow, job.ID),
+			}); err != nil {
+				return fmt.Errorf("create workflow run for workflow %s: %w", workflow.ID, err)
+			}
+		}
+
 		nextRunAt := nextRun(now, time.Duration(workflow.IntervalSeconds)*time.Second)
 		if _, err := s.workflows.MarkDispatched(workflow.ID, job.ID, now, nextRunAt); err != nil {
 			return fmt.Errorf("mark workflow %s dispatched: %w", workflow.ID, err)
@@ -80,6 +99,16 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	return nil
+}
+
+func runMetadata(workflow *workflows.Workflow, jobID string) map[string]string {
+	metadata := map[string]string{}
+	for key, value := range workflow.Metadata {
+		metadata[key] = value
+	}
+	metadata["workflow_name"] = workflow.Name
+	metadata["job_id"] = jobID
+	return metadata
 }
 
 func (s *Scheduler) loop(ctx context.Context) {

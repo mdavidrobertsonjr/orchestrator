@@ -142,6 +142,8 @@ Example digest report payload:
 
 Recurring workflows are stored separately from individual jobs. The scheduler polls enabled workflow definitions and creates a normal queued job whenever `next_run_at` is due. Each scheduled execution then uses the same worker pool, retries, logs, persistence, and dashboard views as manually submitted jobs.
 
+Each workflow dispatch also creates a durable workflow run record. The workflow definition answers "what should run and when"; the run record answers "which execution happened, why it was triggered, and which job processed it." This keeps recurring workflow history auditable even as jobs, results, and notifications are stored separately.
+
 When `OPENAI_API_KEY` is configured, recurring workflows can also be created from English through the dashboard's Describe Workflow form or the API:
 
 ```bash
@@ -249,7 +251,7 @@ Do not hard-code the product around one niche. The job-monitoring flow should be
 Suggested platform steps after the first monitor workflow:
 
 1. Add scheduling so any job type can run daily, hourly, or near real-time without manual submission.
-2. Add durable workflow run records that separate a recurring workflow definition from each execution attempt.
+2. Expand workflow run records with terminal status updates from worker completion events.
 3. Add a simple result store so workflow outputs can be queried by reports, alerts, and dashboards.
 4. Extend natural-language planning to produce validated payloads for multiple job types, not only demo jobs.
 5. Add task-graph support for multi-step workflows such as fetch data -> analyze -> rank -> report -> notify.

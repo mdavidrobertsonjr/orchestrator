@@ -74,6 +74,17 @@ export type Workflow = {
   updated_at: string;
 };
 
+export type WorkflowRun = {
+  id: string;
+  workflow_id: string;
+  job_id: string;
+  trigger: string;
+  status: JobStatus;
+  metadata?: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Result = {
   id: string;
   job_id?: string;
@@ -142,6 +153,11 @@ export async function fetchPostings(): Promise<Posting[]> {
 export async function fetchWorkflows(): Promise<Workflow[]> {
   const response = await request<{ workflows: Workflow[] }>("/v1/workflows");
   return response.workflows;
+}
+
+export async function fetchWorkflowRuns(): Promise<WorkflowRun[]> {
+  const response = await request<{ runs: WorkflowRun[] }>("/v1/workflow-runs");
+  return response.runs;
 }
 
 export async function fetchResults(): Promise<Result[]> {

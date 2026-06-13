@@ -23,6 +23,7 @@ import (
 	"orchestrator/backend/internal/scheduler"
 	"orchestrator/backend/internal/worker"
 	"orchestrator/backend/internal/workers"
+	"orchestrator/backend/internal/workflowruns"
 	"orchestrator/backend/internal/workflows"
 )
 
@@ -67,6 +68,13 @@ func main() {
 	}
 	defer closeResultStore()
 
+	runStore, closeRunStore, err := buildWorkflowRunStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize workflow run store", "error", err)
+		return
+	}
+	defer closeRunStore()
+
 	monitorRunner := monitor.NewRunner(postingStore, nil)
 	emailSender := buildEmailSender(cfg, logger)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, emailSender)
@@ -84,9 +92,9 @@ func main() {
 	}, queue, store, executor, registry, logger)
 	pool.Start(ctx)
 
-	scheduled := scheduler.New(scheduler.Config{
+	scheduled := scheduler.NewWithRuns(scheduler.Config{
 		PollInterval: cfg.SchedulerPollInterval,
-	}, workflowStore, store, queue, logger)
+	}, workflowStore, runStore, store, queue, logger)
 	scheduled.Start(ctx)
 
 	handler := api.NewRouter(api.Config{
@@ -98,6 +106,7 @@ func main() {
 		Planner:   planner,
 		Postings:  postingStore,
 		Workflows: workflowStore,
+		Runs:      runStore,
 		Results:   resultStore,
 	})
 
@@ -295,6 +304,32 @@ func buildResultStore(ctx context.Context, cfg config, logger *slog.Logger) (res
 	return store, func() {
 		if err := store.Close(); err != nil {
 			logger.Error("failed to close postgres result store", "error", err)
+		}
+	}, nil
+}
+
+func buildWorkflowRunStore(ctx context.Context, cfg config, logger *slog.Logger) (workflowruns.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory workflow run store")
+		return workflowruns.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := workflowruns.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres workflow run store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres workflow run store", "error", err)
 		}
 	}, nil
 }

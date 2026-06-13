@@ -26,6 +26,7 @@ import {
   fetchPostings,
   fetchQueue,
   fetchResults,
+  fetchWorkflowRuns,
   fetchWorkflows,
   fetchWorkers,
   Job,
@@ -37,7 +38,8 @@ import {
   updateWorkflow,
   Worker,
   WorkerStatus,
-  Workflow
+  Workflow,
+  WorkflowRun
 } from "./api";
 
 const defaultQueue: QueueStatus = { queued: 0, capacity: 0 };
@@ -152,6 +154,7 @@ export function App() {
   const [postings, setPostings] = useState<Posting[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
@@ -195,13 +198,14 @@ export function App() {
 
   async function refresh() {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows, nextResults] = await Promise.all([
+      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows, nextRuns, nextResults] = await Promise.all([
         fetchHealth(),
         fetchJobs(),
         fetchWorkers(),
         fetchQueue(),
         fetchPostings(),
         fetchWorkflows(),
+        fetchWorkflowRuns(),
         fetchResults()
       ]);
       setJobs(nextJobs);
@@ -209,6 +213,7 @@ export function App() {
       setQueue(nextQueue);
       setPostings(nextPostings);
       setWorkflows(nextWorkflows);
+      setWorkflowRuns(nextRuns);
       setResults(nextResults);
       setApiOnline(true);
       setLastUpdated(new Date());
@@ -371,6 +376,7 @@ export function App() {
       <Panel title="Scheduled Workflows" subtitle={`${workflows.length} recurring definitions`}>
         <WorkflowsTable
           workflows={workflows}
+          runs={workflowRuns}
           jobs={jobs}
           loading={loading}
           onToggle={(workflow) => void handleWorkflowToggle(workflow)}
@@ -883,6 +889,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
 
 function WorkflowsTable({
   workflows,
+  runs,
   jobs,
   loading,
   onToggle,
@@ -890,6 +897,7 @@ function WorkflowsTable({
   onSelectJob
 }: {
   workflows: Workflow[];
+  runs: WorkflowRun[];
   jobs: Job[];
   loading: boolean;
   onToggle: (workflow: Workflow) => void;
@@ -919,8 +927,8 @@ function WorkflowsTable({
         </thead>
         <tbody>
           {workflows.map((workflow) => {
-            const runs = jobs
-              .filter((job) => job.metadata?.workflow_id === workflow.id)
+            const recentRuns = runs
+              .filter((run) => run.workflow_id === workflow.id)
               .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
               .slice(0, 3);
 
@@ -939,21 +947,24 @@ function WorkflowsTable({
                 <td>{formatInterval(workflow.interval_seconds)}</td>
                 <td>{relativeTime(workflow.next_run_at)}</td>
                 <td>
-                  {runs.length > 0 ? (
+                  {recentRuns.length > 0 ? (
                     <div className="run-list">
-                      {runs.map((run) => (
-                        <button
-                          className="run-link"
-                          type="button"
-                          key={run.id}
-                          onClick={() => onSelectJob(run.id)}
-                          title="Open scheduled job detail"
-                        >
-                          <StatusPill status={run.status} />
-                          <span>{relativeTime(run.created_at)}</span>
-                          <span>{run.id.slice(0, 8)}</span>
-                        </button>
-                      ))}
+                      {recentRuns.map((run) => {
+                        const job = jobs.find((candidate) => candidate.id === run.job_id);
+                        return (
+                          <button
+                            className="run-link"
+                            type="button"
+                            key={run.id}
+                            onClick={() => onSelectJob(run.job_id)}
+                            title="Open workflow run job detail"
+                          >
+                            <StatusPill status={job?.status ?? run.status} />
+                            <span>{run.trigger}</span>
+                            <span>{relativeTime(run.created_at)}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : workflow.last_run_at ? (
                     <>

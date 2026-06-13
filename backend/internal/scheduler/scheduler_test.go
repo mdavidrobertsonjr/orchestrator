@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workflowruns"
 	"orchestrator/backend/internal/workflows"
 )
 
 func TestTickDispatchesDueWorkflow(t *testing.T) {
 	workflowStore := workflows.NewMemoryStore()
+	runStore := workflowruns.NewMemoryStore()
 	jobStore := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
@@ -31,7 +33,7 @@ func TestTickDispatchesDueWorkflow(t *testing.T) {
 		t.Fatalf("create workflow: %v", err)
 	}
 
-	scheduler := New(Config{PollInterval: time.Hour}, workflowStore, jobStore, queue, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	scheduler := NewWithRuns(Config{PollInterval: time.Hour}, workflowStore, runStore, jobStore, queue, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := scheduler.Tick(t.Context(), now); err != nil {
 		t.Fatalf("tick scheduler: %v", err)
 	}
@@ -70,6 +72,14 @@ func TestTickDispatchesDueWorkflow(t *testing.T) {
 	}
 	if !updated.NextRunAt.Equal(now.Add(time.Hour)) {
 		t.Fatalf("expected next run one hour later, got %s", updated.NextRunAt)
+	}
+
+	runs, err := runStore.ListByWorkflow(workflow.ID)
+	if err != nil {
+		t.Fatalf("list workflow runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].JobID != job.ID || runs[0].Trigger != "schedule" {
+		t.Fatalf("expected scheduled workflow run for job %q, got %#v", job.ID, runs)
 	}
 }
 
