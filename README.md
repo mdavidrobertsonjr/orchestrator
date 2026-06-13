@@ -67,6 +67,8 @@ OPENAI_API_KEY=sk-... make website
 
 The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
 
+The primary dashboard command box sends requests to `POST /v1/commands/natural`. The planner decides whether the request is a one-time job or a recurring workflow. Requests like "run a report now" become queued jobs; requests like "monitor Datadog new-grad SWE roles in NYC every morning" become scheduled workflows.
+
 Email report requests are supported as `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs. Delivery is simulated by default and uses SMTP when configured.
 
 Configure SMTP to send real `report.email` messages:

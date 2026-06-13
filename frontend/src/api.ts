@@ -118,6 +118,12 @@ export type UpdateWorkflowInput = {
   enabled: boolean;
 };
 
+export type NaturalCommandResponse = {
+  action: "job" | "workflow";
+  job?: Job;
+  workflow?: Workflow;
+};
+
 export async function fetchJobs(): Promise<Job[]> {
   const response = await request<{ jobs: Job[] }>("/v1/jobs");
   return response.jobs;
@@ -183,6 +189,16 @@ export function createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
 
 export function createNaturalWorkflow(input: CreateNaturalJobInput): Promise<Workflow> {
   return request<Workflow>("/v1/workflows/natural", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+}
+
+export function createNaturalCommand(input: CreateNaturalJobInput): Promise<NaturalCommandResponse> {
+  return request<NaturalCommandResponse>("/v1/commands/natural", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

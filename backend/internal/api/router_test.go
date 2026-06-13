@@ -205,6 +205,96 @@ func TestCreateNaturalWorkflowWithoutPlanner(t *testing.T) {
 	}
 }
 
+func TestCreateNaturalCommandCreatesWorkflow(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
+		Planner: fakePlanner{commandPlan: &llm.CommandPlan{
+			Action: "workflow",
+			Workflow: llm.WorkflowPlan{
+				Name:            "datadog monitor",
+				JobType:         "jobs.monitor.new_grad",
+				IntervalSeconds: 86400,
+				MaxAttempts:     2,
+				Enabled:         true,
+				Payload:         map[string]any{"min_score": float64(20)},
+			},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/commands/natural", bytes.NewBufferString(`{"prompt":"monitor Datadog roles every day"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	var response naturalCommandResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Action != "workflow" || response.Workflow == nil {
+		t.Fatalf("expected workflow command response, got %#v", response)
+	}
+	if response.Workflow.JobType != "jobs.monitor.new_grad" {
+		t.Fatalf("unexpected workflow response: %#v", response.Workflow)
+	}
+	if response.Workflow.Metadata["submitted_with"] != "natural_language" {
+		t.Fatalf("expected natural language metadata, got %#v", response.Workflow.Metadata)
+	}
+}
+
+func TestCreateNaturalCommandQueuesJob(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	router := NewRouter(Config{
+		Queue:     queue,
+		Store:     store,
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflows.NewMemoryStore(),
+		Planner: fakePlanner{commandPlan: &llm.CommandPlan{
+			Action: "job",
+			Job: llm.JobPlan{
+				Name:        "one off report",
+				Type:        "report.email",
+				DurationMS:  1000,
+				MaxAttempts: 1,
+				Report:      llm.ReportPlan{Subject: "Report", Kind: "custom"},
+			},
+		}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/commands/natural", bytes.NewBufferString(`{"prompt":"send a report now"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("expected queued job, got queue length %d", queue.Len())
+	}
+
+	var response naturalCommandResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Action != "job" || response.Job == nil {
+		t.Fatalf("expected job command response, got %#v", response)
+	}
+	if response.Job.Type != "report.email" {
+		t.Fatalf("unexpected job response: %#v", response.Job)
+	}
+}
+
 func TestGetAndListJobs(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)
@@ -770,6 +860,7 @@ func testRouterWithResults(resultStore results.Store) http.Handler {
 type fakePlanner struct {
 	plan         *llm.JobPlan
 	workflowPlan *llm.WorkflowPlan
+	commandPlan  *llm.CommandPlan
 	err          error
 }
 
@@ -779,4 +870,8 @@ func (p fakePlanner) Plan(context.Context, string) (*llm.JobPlan, error) {
 
 func (p fakePlanner) PlanWorkflow(context.Context, string) (*llm.WorkflowPlan, error) {
 	return p.workflowPlan, p.err
+}
+
+func (p fakePlanner) PlanCommand(context.Context, string) (*llm.CommandPlan, error) {
+	return p.commandPlan, p.err
 }

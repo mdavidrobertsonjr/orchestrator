@@ -17,6 +17,7 @@ const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 type Planner interface {
 	Plan(ctx context.Context, prompt string) (*JobPlan, error)
 	PlanWorkflow(ctx context.Context, prompt string) (*WorkflowPlan, error)
+	PlanCommand(ctx context.Context, prompt string) (*CommandPlan, error)
 }
 
 type JobPlan struct {
@@ -44,6 +45,12 @@ type WorkflowPlan struct {
 	Enabled         bool              `json:"enabled"`
 	Payload         map[string]any    `json:"payload"`
 	Metadata        map[string]string `json:"metadata,omitempty"`
+}
+
+type CommandPlan struct {
+	Action   string       `json:"action"`
+	Job      JobPlan      `json:"job"`
+	Workflow WorkflowPlan `json:"workflow"`
 }
 
 type OpenAIPlanner struct {
@@ -245,6 +252,102 @@ func (p *OpenAIPlanner) PlanWorkflow(ctx context.Context, prompt string) (*Workf
 	return &plan, nil
 }
 
+func (p *OpenAIPlanner) PlanCommand(ctx context.Context, prompt string) (*CommandPlan, error) {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return nil, errors.New("prompt is required")
+	}
+	if p.apiKey == "" {
+		return nil, errors.New("OPENAI_API_KEY is not configured")
+	}
+
+	body := responseRequest{
+		Model: p.model,
+		Input: []responseInput{
+			{
+				Role:    "system",
+				Content: "Convert the user's request into either one immediate orchestrator job or one recurring workflow. Choose action=workflow when the user asks for recurring work, monitoring, schedules, daily/hourly/weekly tasks, or ongoing alerts. Choose action=job for one-off work that should run now. Use only job types: jobs.monitor.new_grad, report.email, video.transcode, scrape.url, python.script, ai.inference, data.pipeline. Prefer jobs.monitor.new_grad for monitoring new-grad software engineering roles. For Greenhouse sources, use type greenhouse with company and board_token. For Lever, use type lever with company and account_name. For Ashby, use type ashby with company and job_board_name. For workflow intervals use 86400 for daily, 3600 for hourly, 900 for near-real-time. Fill both job and workflow objects, but only the object matching action will be executed.",
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		Text: responseText{
+			Format: responseFormat{
+				Type:   "json_schema",
+				Name:   "command_plan",
+				Strict: true,
+				Schema: commandPlanSchema(),
+			},
+		},
+	}
+
+	text, err := p.responsesOutput(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	var plan CommandPlan
+	if err := json.Unmarshal([]byte(text), &plan); err != nil {
+		return nil, err
+	}
+	normalizeCommandPlan(&plan)
+	return &plan, nil
+}
+
+func commandPlanSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"action", "job", "workflow"},
+		"properties": map[string]any{
+			"action": map[string]any{
+				"type": "string",
+				"enum": []string{"job", "workflow"},
+			},
+			"job": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"name", "type", "duration_ms", "max_attempts", "should_fail", "metadata", "report"},
+				"properties": map[string]any{
+					"name":         map[string]any{"type": "string", "minLength": 1, "maxLength": 80},
+					"type":         map[string]any{"type": "string", "enum": []string{"video.transcode", "scrape.url", "python.script", "ai.inference", "data.pipeline", "report.email"}},
+					"duration_ms":  map[string]any{"type": "integer", "minimum": 100, "maximum": 30000},
+					"max_attempts": map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
+					"should_fail":  map[string]any{"type": "boolean"},
+					"metadata":     map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+					"report": map[string]any{
+						"type":                 "object",
+						"additionalProperties": false,
+						"required":             []string{"recipients", "subject", "kind", "schedule"},
+						"properties": map[string]any{
+							"recipients": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+							"subject":    map[string]any{"type": "string"},
+							"kind":       map[string]any{"type": "string", "enum": []string{"job_summary", "worker_status", "failure_alert", "custom"}},
+							"schedule":   map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+			"workflow": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"name", "job_type", "interval_seconds", "max_attempts", "enabled", "payload", "metadata"},
+				"properties": map[string]any{
+					"name":             map[string]any{"type": "string", "minLength": 1, "maxLength": 80},
+					"job_type":         map[string]any{"type": "string", "enum": []string{"jobs.monitor.new_grad", "report.email", "video.transcode", "scrape.url", "data.pipeline"}},
+					"interval_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
+					"max_attempts":     map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
+					"enabled":          map[string]any{"type": "boolean"},
+					"payload":          map[string]any{"type": "object", "additionalProperties": true},
+					"metadata":         map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+				},
+			},
+		},
+	}
+}
+
 func (p *OpenAIPlanner) responsesOutput(ctx context.Context, body responseRequest) (string, error) {
 	var encoded bytes.Buffer
 	if err := json.NewEncoder(&encoded).Encode(body); err != nil {
@@ -387,4 +490,13 @@ func normalizeWorkflowPlan(plan *WorkflowPlan) {
 	if plan.Metadata == nil {
 		plan.Metadata = map[string]string{}
 	}
+}
+
+func normalizeCommandPlan(plan *CommandPlan) {
+	plan.Action = strings.ToLower(strings.TrimSpace(plan.Action))
+	if plan.Action != "workflow" {
+		plan.Action = "job"
+	}
+	normalizePlan(&plan.Job)
+	normalizeWorkflowPlan(&plan.Workflow)
 }

@@ -18,6 +18,12 @@ import (
 	"orchestrator/backend/internal/workflows"
 )
 
+var (
+	errCreateJob      = errors.New("create job")
+	errEnqueueJob     = errors.New("enqueue job")
+	errCreateWorkflow = errors.New("create workflow")
+)
+
 type Config struct {
 	Queue     jobs.Queue
 	Store     jobs.Store
@@ -55,6 +61,7 @@ func NewRouter(config Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.handleHealth)
+	mux.HandleFunc("POST /v1/commands/natural", server.handleCreateNaturalCommand)
 	mux.HandleFunc("GET /v1/jobs", server.handleListJobs)
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
 	mux.HandleFunc("POST /v1/jobs/natural", server.handleCreateNaturalJob)
@@ -103,6 +110,12 @@ type createWorkflowRequest struct {
 
 type updateWorkflowRequest struct {
 	Enabled *bool `json:"enabled"`
+}
+
+type naturalCommandResponse struct {
+	Action   string              `json:"action"`
+	Job      *jobs.Job           `json:"job,omitempty"`
+	Workflow *workflows.Workflow `json:"workflow,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -168,24 +181,58 @@ func (s *Server) handleCreateNaturalJob(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	metadata := plan.Metadata
-	if metadata == nil {
-		metadata = map[string]string{}
-	}
-	metadata["submitted_by"] = "dashboard"
-	metadata["submitted_with"] = "natural_language"
+	s.createAndEnqueuePlannedJob(w, r, plan)
+}
 
-	s.createAndEnqueueJob(w, r, jobs.CreateJobParams{
-		Name:        plan.Name,
-		Type:        plan.Type,
-		MaxAttempts: plan.MaxAttempts,
-		Payload: map[string]any{
-			"duration_ms": plan.DurationMS,
-			"report":      plan.Report,
-			"should_fail": plan.ShouldFail,
-		},
-		Metadata: metadata,
-	})
+func (s *Server) handleCreateNaturalCommand(w http.ResponseWriter, r *http.Request) {
+	if s.planner == nil {
+		writeError(w, http.StatusServiceUnavailable, "LLM planner is not configured")
+		return
+	}
+	if s.workflows == nil {
+		writeError(w, http.StatusServiceUnavailable, "workflow store is not configured")
+		return
+	}
+
+	var req createNaturalJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required")
+		return
+	}
+
+	plan, err := s.planner.PlanCommand(r.Context(), req.Prompt)
+	if err != nil {
+		s.logger.Error("failed to plan natural language command", "error", err)
+		writeError(w, http.StatusBadGateway, "failed to plan command")
+		return
+	}
+	if plan == nil {
+		s.logger.Error("failed to plan natural language command", "error", "planner returned nil plan")
+		writeError(w, http.StatusBadGateway, "failed to plan command")
+		return
+	}
+
+	if plan.Action == "workflow" {
+		workflow, err := s.createPlannedWorkflowValue(&plan.Workflow)
+		if err != nil {
+			s.writeCreateWorkflowError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, naturalCommandResponse{Action: "workflow", Workflow: workflow})
+		return
+	}
+
+	job, err := s.createAndEnqueuePlannedJobValue(r, &plan.Job)
+	if err != nil {
+		s.writeCreateJobError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, naturalCommandResponse{Action: "job", Job: job})
 }
 
 func (s *Server) createAndEnqueueJob(w http.ResponseWriter, r *http.Request, params jobs.CreateJobParams) {
@@ -204,6 +251,51 @@ func (s *Server) createAndEnqueueJob(w http.ResponseWriter, r *http.Request, par
 
 	s.logger.Info("job submitted", "job_id", job.ID, "type", job.Type)
 	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) createAndEnqueuePlannedJob(w http.ResponseWriter, r *http.Request, plan *llm.JobPlan) {
+	job, err := s.createAndEnqueuePlannedJobValue(r, plan)
+	if err != nil {
+		s.writeCreateJobError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+func (s *Server) createAndEnqueuePlannedJobValue(r *http.Request, plan *llm.JobPlan) (*jobs.Job, error) {
+	metadata := naturalMetadata(plan.Metadata)
+	job, err := s.store.Create(jobs.CreateJobParams{
+		Name:        plan.Name,
+		Type:        plan.Type,
+		MaxAttempts: plan.MaxAttempts,
+		Payload: map[string]any{
+			"duration_ms": plan.DurationMS,
+			"report":      plan.Report,
+			"should_fail": plan.ShouldFail,
+		},
+		Metadata: metadata,
+	})
+	if err != nil {
+		s.logger.Error("failed to create planned job", "error", err)
+		return nil, errCreateJob
+	}
+
+	if err := s.queue.Enqueue(r.Context(), job.ID); err != nil {
+		s.logger.Error("failed to enqueue planned job", "job_id", job.ID, "error", err)
+		return nil, errEnqueueJob
+	}
+
+	s.logger.Info("natural job submitted", "job_id", job.ID, "type", job.Type)
+	return job, nil
+}
+
+func (s *Server) writeCreateJobError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errEnqueueJob):
+		writeError(w, http.StatusServiceUnavailable, "queue is unavailable")
+	default:
+		writeError(w, http.StatusInternalServerError, "failed to create job")
+	}
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
@@ -373,30 +465,46 @@ func (s *Server) handleCreateNaturalWorkflow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	metadata := plan.Metadata
-	if metadata == nil {
-		metadata = map[string]string{}
+	workflow, err := s.createPlannedWorkflowValue(plan)
+	if err != nil {
+		s.writeCreateWorkflowError(w, err)
+		return
 	}
-	metadata["submitted_by"] = "dashboard"
-	metadata["submitted_with"] = "natural_language"
 
+	writeJSON(w, http.StatusCreated, workflow)
+}
+
+func (s *Server) createPlannedWorkflowValue(plan *llm.WorkflowPlan) (*workflows.Workflow, error) {
 	workflow, err := s.workflows.Create(workflows.CreateWorkflowParams{
 		Name:            plan.Name,
 		JobType:         plan.JobType,
 		Payload:         plan.Payload,
-		Metadata:        metadata,
+		Metadata:        naturalMetadata(plan.Metadata),
 		MaxAttempts:     plan.MaxAttempts,
 		Enabled:         plan.Enabled,
 		IntervalSeconds: plan.IntervalSeconds,
 	})
 	if err != nil {
 		s.logger.Error("failed to create planned workflow", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to create workflow")
-		return
+		return nil, errCreateWorkflow
 	}
 
 	s.logger.Info("natural workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
-	writeJSON(w, http.StatusCreated, workflow)
+	return workflow, nil
+}
+
+func (s *Server) writeCreateWorkflowError(w http.ResponseWriter, err error) {
+	writeError(w, http.StatusInternalServerError, "failed to create workflow")
+}
+
+func naturalMetadata(metadata map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range metadata {
+		out[key] = value
+	}
+	out["submitted_by"] = "dashboard"
+	out["submitted_with"] = "natural_language"
+	return out
 }
 
 func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {

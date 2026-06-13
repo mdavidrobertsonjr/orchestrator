@@ -19,8 +19,7 @@ import {
 } from "lucide-react";
 import {
   createJob,
-  createNaturalJob,
-  createNaturalWorkflow,
+  createNaturalCommand,
   createWorkflow,
   fetchHealth,
   fetchJobs,
@@ -157,10 +156,10 @@ export function App() {
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
-  const [naturalWorkflowPrompt, setNaturalWorkflowPrompt] = useState(
+  const [commandPrompt, setCommandPrompt] = useState(
     "Monitor Datadog new-grad software engineering roles in NYC every day"
   );
-  const [naturalPrompt, setNaturalPrompt] = useState("Email me a summary of failed jobs every morning at 8am");
+  const [commandResult, setCommandResult] = useState<string | null>(null);
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -255,17 +254,25 @@ export function App() {
     }
   }
 
-  async function handleNaturalSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleNaturalCommandSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setCommandResult(null);
 
     try {
-      const created = await createNaturalJob({ prompt: naturalPrompt.trim() });
-      setSelectedJobID(created.id);
+      const created = await createNaturalCommand({ prompt: commandPrompt.trim() });
+      if (created.action === "job" && created.job) {
+        setSelectedJobID(created.job.id);
+        setActiveSection("jobs");
+        setCommandResult(`Queued job: ${created.job.name}`);
+      } else if (created.action === "workflow" && created.workflow) {
+        setActiveSection("workflows");
+        setCommandResult(`Created workflow: ${created.workflow.name}`);
+      }
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to submit natural language job");
+      setError(err instanceof Error ? err.message : "failed to run command");
     } finally {
       setSubmitting(false);
     }
@@ -292,21 +299,6 @@ export function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to create workflow");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleNaturalWorkflowSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      await createNaturalWorkflow({ prompt: naturalWorkflowPrompt.trim() });
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to create natural language workflow");
     } finally {
       setSubmitting(false);
     }
@@ -404,12 +396,13 @@ export function App() {
     ),
     commands: (
       <section className="command-grid">
-        <Panel title="Describe Workflow" subtitle="Plan recurring work in English">
-          <NaturalWorkflowForm
-            prompt={naturalWorkflowPrompt}
+        <Panel title="Tell Orchestrator What To Do" subtitle="Create a job or workflow from one request">
+          <NaturalCommandForm
+            prompt={commandPrompt}
+            result={commandResult}
             submitting={submitting}
-            onChange={setNaturalWorkflowPrompt}
-            onSubmit={handleNaturalWorkflowSubmit}
+            onChange={setCommandPrompt}
+            onSubmit={handleNaturalCommandSubmit}
           />
         </Panel>
         <Panel title="Schedule Workflow" subtitle="Create recurring work">
@@ -418,14 +411,6 @@ export function App() {
             submitting={submitting}
             onChange={setWorkflowForm}
             onSubmit={handleWorkflowSubmit}
-          />
-        </Panel>
-        <Panel title="Ask Orchestrator" subtitle="Describe a one-off job in English">
-          <NaturalJobForm
-            prompt={naturalPrompt}
-            submitting={submitting}
-            onChange={setNaturalPrompt}
-            onSubmit={handleNaturalSubmit}
           />
         </Panel>
         <Panel title="Submit Job" subtitle="Create a simulated workload">
@@ -553,13 +538,15 @@ function QueueMeter({ queue, fill }: { queue: QueueStatus; fill: number }) {
   );
 }
 
-function NaturalWorkflowForm({
+function NaturalCommandForm({
   prompt,
+  result,
   submitting,
   onChange,
   onSubmit
 }: {
   prompt: string;
+  result: string | null;
   submitting: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -572,8 +559,9 @@ function NaturalWorkflowForm({
       </label>
       <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
         <Send size={16} />
-        {submitting ? "Planning" : "Plan Workflow"}
+        {submitting ? "Planning" : "Run Command"}
       </button>
+      {result && <div className="success-note">{result}</div>}
     </form>
   );
 }
@@ -653,31 +641,6 @@ function WorkflowForm({
       <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
         <Send size={16} />
         {submitting ? "Scheduling" : "Schedule Workflow"}
-      </button>
-    </form>
-  );
-}
-
-function NaturalJobForm({
-  prompt,
-  submitting,
-  onChange,
-  onSubmit
-}: {
-  prompt: string;
-  submitting: boolean;
-  onChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <form className="submit-form" onSubmit={onSubmit}>
-      <label>
-        <span>Request</span>
-        <textarea value={prompt} onChange={(event) => onChange(event.target.value)} rows={4} />
-      </label>
-      <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
-        <Send size={16} />
-        {submitting ? "Planning" : "Plan & Submit"}
       </button>
     </form>
   );

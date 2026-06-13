@@ -108,6 +108,43 @@ func TestOpenAIPlannerParsesWorkflowResponse(t *testing.T) {
 	}
 }
 
+func TestOpenAIPlannerParsesCommandResponse(t *testing.T) {
+	planner := NewOpenAIPlanner("test-key", "test-model")
+	planner.baseURL = "https://example.test/v1"
+	planner.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var req responseRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Text.Format.Name != "command_plan" {
+			t.Fatalf("expected command_plan schema, got %q", req.Text.Format.Name)
+		}
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(bytes.NewBufferString(`{
+			"output": [{
+				"content": [{
+					"type": "output_text",
+					"text": "{\"action\":\"workflow\",\"job\":{\"name\":\"fallback job\",\"type\":\"report.email\",\"duration_ms\":1000,\"max_attempts\":1,\"should_fail\":false,\"metadata\":{},\"report\":{\"recipients\":[],\"subject\":\"Report\",\"kind\":\"custom\",\"schedule\":\"immediate\"}},\"workflow\":{\"name\":\"nyc monitor\",\"job_type\":\"jobs.monitor.new_grad\",\"interval_seconds\":86400,\"max_attempts\":2,\"enabled\":true,\"payload\":{\"keywords\":[\"new grad\"]},\"metadata\":{\"source\":\"test\"}}}"
+				}]
+			}]
+		}`)),
+		}, nil
+	})}
+
+	plan, err := planner.PlanCommand(t.Context(), "monitor NYC roles daily")
+	if err != nil {
+		t.Fatalf("plan command: %v", err)
+	}
+	if plan.Action != "workflow" {
+		t.Fatalf("expected workflow action, got %q", plan.Action)
+	}
+	if plan.Workflow.JobType != "jobs.monitor.new_grad" || plan.Workflow.IntervalSeconds != 86400 {
+		t.Fatalf("unexpected workflow command plan: %#v", plan.Workflow)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

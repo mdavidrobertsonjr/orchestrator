@@ -233,6 +233,16 @@ h2 {
   padding: 12px 14px;
 }
 
+.success-note {
+  border: 1px solid #b8e2cb;
+  border-radius: 8px;
+  background: #f0fbf5;
+  color: #116c49;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
