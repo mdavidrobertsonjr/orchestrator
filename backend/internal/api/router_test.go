@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
@@ -367,6 +368,116 @@ func TestQueueStatus(t *testing.T) {
 	}
 	if response.Queued != 1 || response.Capacity != 3 {
 		t.Fatalf("unexpected queue status: %#v", response)
+	}
+}
+
+func TestMetricsSummarizesRuntimeState(t *testing.T) {
+	jobStore := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(5)
+	registry := workers.NewMemoryRegistry()
+	workflowStore := workflows.NewMemoryStore()
+	runStore := workflowruns.NewMemoryStore()
+	postingStore := postings.NewMemoryStore()
+	resultStore := results.NewMemoryStore()
+
+	firstJob, err := jobStore.Create(jobs.CreateJobParams{Name: "expired", Type: "demo.sleep", MaxAttempts: 3})
+	if err != nil {
+		t.Fatalf("create first job: %v", err)
+	}
+	if _, err := jobStore.MarkRunningWithLease(firstJob.ID, "worker-1", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("mark first job running: %v", err)
+	}
+
+	retriedJob, err := jobStore.Create(jobs.CreateJobParams{Name: "retried", Type: "demo.sleep", MaxAttempts: 3})
+	if err != nil {
+		t.Fatalf("create retried job: %v", err)
+	}
+	if _, err := jobStore.MarkRunningWithLease(retriedJob.ID, "worker-1", time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("mark retried job running: %v", err)
+	}
+	if _, err := jobStore.MarkQueued(retriedJob.ID, "retry"); err != nil {
+		t.Fatalf("requeue retried job: %v", err)
+	}
+	if _, err := jobStore.MarkRunningWithLease(retriedJob.ID, "worker-1", time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("mark retried job running again: %v", err)
+	}
+
+	queuedJob, err := jobStore.Create(jobs.CreateJobParams{Name: "queued", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create queued job: %v", err)
+	}
+	if err := queue.Enqueue(t.Context(), queuedJob.ID); err != nil {
+		t.Fatalf("enqueue queued job: %v", err)
+	}
+
+	if _, err := registry.Register("worker-1"); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	if _, err := registry.MarkRunning("worker-1", retriedJob.ID); err != nil {
+		t.Fatalf("mark worker running: %v", err)
+	}
+
+	past := time.Now().Add(-time.Minute)
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "due workflow",
+		JobType:         "demo.sleep",
+		Enabled:         true,
+		IntervalSeconds: 60,
+		NextRunAt:       &past,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	if _, err := runStore.Create(workflowruns.CreateRunParams{WorkflowID: workflow.ID, JobID: queuedJob.ID, Trigger: "schedule"}); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "Datadog", Title: "SWE", URL: "https://example.com/job", Source: "greenhouse"}); err != nil {
+		t.Fatalf("create posting: %v", err)
+	}
+	if _, err := resultStore.Create(results.CreateResultParams{JobID: queuedJob.ID, Type: "demo.result"}); err != nil {
+		t.Fatalf("create result: %v", err)
+	}
+
+	router := NewRouter(Config{
+		Queue:     queue,
+		Store:     jobStore,
+		Workers:   registry,
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Postings:  postingStore,
+		Workflows: workflowStore,
+		Runs:      runStore,
+		Results:   resultStore,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response metricsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Queue.Queued != 1 || response.Queue.Capacity != 5 || response.Queue.Utilization != 0.2 {
+		t.Fatalf("unexpected queue metrics: %#v", response.Queue)
+	}
+	if response.Jobs.Total != 3 || response.Jobs.ByStatus[string(jobs.StatusRunning)] != 2 || response.Jobs.ByStatus[string(jobs.StatusQueued)] != 1 {
+		t.Fatalf("unexpected job status metrics: %#v", response.Jobs)
+	}
+	if response.Jobs.Attempts != 3 || response.Jobs.RetryAttempts != 1 || response.Jobs.Leased != 2 || response.Jobs.ExpiredLeases != 1 {
+		t.Fatalf("unexpected job attempt/lease metrics: %#v", response.Jobs)
+	}
+	if response.Workers.Total != 1 || response.Workers.Running != 1 || response.Workers.Active != 1 {
+		t.Fatalf("unexpected worker metrics: %#v", response.Workers)
+	}
+	if response.Workflows.Total != 1 || response.Workflows.Enabled != 1 || response.Workflows.Due != 1 || response.Workflows.RunRecords != 1 {
+		t.Fatalf("unexpected workflow metrics: %#v", response.Workflows)
+	}
+	if response.Postings.Total != 1 || response.Results.Total != 1 {
+		t.Fatalf("unexpected collection metrics: postings=%#v results=%#v", response.Postings, response.Results)
 	}
 }
 

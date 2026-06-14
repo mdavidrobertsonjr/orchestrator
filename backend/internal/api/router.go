@@ -71,6 +71,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/jobs/natural", server.handleCreateNaturalJob)
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
+	mux.HandleFunc("GET /v1/metrics", server.handleMetrics)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
 	mux.HandleFunc("GET /v1/postings", server.handleListPostings)
 	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
@@ -122,6 +123,51 @@ type naturalCommandResponse struct {
 	Action   string              `json:"action"`
 	Job      *jobs.Job           `json:"job,omitempty"`
 	Workflow *workflows.Workflow `json:"workflow,omitempty"`
+}
+
+type metricsResponse struct {
+	GeneratedAt time.Time         `json:"generated_at"`
+	Queue       queueMetrics      `json:"queue"`
+	Jobs        jobMetrics        `json:"jobs"`
+	Workers     workerMetrics     `json:"workers"`
+	Workflows   workflowMetrics   `json:"workflows"`
+	Postings    collectionMetrics `json:"postings"`
+	Results     collectionMetrics `json:"results"`
+}
+
+type queueMetrics struct {
+	Queued      int     `json:"queued"`
+	Capacity    int     `json:"capacity"`
+	Utilization float64 `json:"utilization"`
+}
+
+type jobMetrics struct {
+	Total         int            `json:"total"`
+	ByStatus      map[string]int `json:"by_status"`
+	Attempts      int            `json:"attempts"`
+	RetryAttempts int            `json:"retry_attempts"`
+	Leased        int            `json:"leased"`
+	ExpiredLeases int            `json:"expired_leases"`
+}
+
+type workerMetrics struct {
+	Total     int            `json:"total"`
+	ByStatus  map[string]int `json:"by_status"`
+	Active    int            `json:"active"`
+	Running   int            `json:"running"`
+	Heartbeat int            `json:"heartbeat"`
+}
+
+type workflowMetrics struct {
+	Total      int `json:"total"`
+	Enabled    int `json:"enabled"`
+	Disabled   int `json:"disabled"`
+	Due        int `json:"due"`
+	RunRecords int `json:"run_records"`
+}
+
+type collectionMetrics struct {
+	Total int `json:"total"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -337,6 +383,114 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		"queued":   s.queue.Len(),
 		"capacity": s.queue.Cap(),
 	})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	jobs, err := s.store.List()
+	if err != nil {
+		s.logger.Error("failed to list jobs for metrics", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+		return
+	}
+
+	now := time.Now().UTC()
+	response := metricsResponse{
+		GeneratedAt: now,
+		Queue: queueMetrics{
+			Queued:   s.queue.Len(),
+			Capacity: s.queue.Cap(),
+		},
+		Jobs: jobMetrics{
+			ByStatus: map[string]int{},
+		},
+		Workers: workerMetrics{
+			ByStatus: map[string]int{},
+		},
+	}
+	if response.Queue.Capacity > 0 {
+		response.Queue.Utilization = float64(response.Queue.Queued) / float64(response.Queue.Capacity)
+	}
+
+	for _, job := range jobs {
+		response.Jobs.Total++
+		response.Jobs.ByStatus[string(job.Status)]++
+		response.Jobs.Attempts += job.Attempts
+		if job.Attempts > 1 {
+			response.Jobs.RetryAttempts += job.Attempts - 1
+		}
+		if job.LeaseUntil != nil {
+			response.Jobs.Leased++
+			if !job.LeaseUntil.After(now) {
+				response.Jobs.ExpiredLeases++
+			}
+		}
+	}
+
+	for _, worker := range s.workers.List() {
+		response.Workers.Total++
+		response.Workers.ByStatus[string(worker.Status)]++
+		if worker.Status != workers.StatusStopped {
+			response.Workers.Active++
+		}
+		if worker.Status == workers.StatusRunning {
+			response.Workers.Running++
+		}
+		if !worker.LastHeartbeat.IsZero() {
+			response.Workers.Heartbeat++
+		}
+	}
+
+	if s.workflows != nil {
+		workflows, err := s.workflows.List()
+		if err != nil {
+			s.logger.Error("failed to list workflows for metrics", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+			return
+		}
+		response.Workflows.Total = len(workflows)
+		for _, workflow := range workflows {
+			if workflow.Enabled {
+				response.Workflows.Enabled++
+				if !workflow.NextRunAt.After(now) {
+					response.Workflows.Due++
+				}
+			} else {
+				response.Workflows.Disabled++
+			}
+		}
+	}
+
+	if s.runs != nil {
+		runs, err := s.runs.List()
+		if err != nil {
+			s.logger.Error("failed to list workflow runs for metrics", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+			return
+		}
+		response.Workflows.RunRecords = len(runs)
+	}
+
+	if s.postings != nil {
+		postings, err := s.postings.List()
+		if err != nil {
+			s.logger.Error("failed to list postings for metrics", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+			return
+		}
+		response.Postings.Total = len(postings)
+	}
+
+	if s.results != nil {
+		results, err := s.results.List()
+		if err != nil {
+			s.logger.Error("failed to list results for metrics", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+			return
+		}
+		response.Results.Total = len(results)
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
