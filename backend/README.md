@@ -108,6 +108,12 @@ Queue status:
 curl http://localhost:8080/v1/queue
 ```
 
+Runtime metrics:
+
+```bash
+curl http://localhost:8080/v1/metrics
+```
+
 Worker status:
 
 ```bash
@@ -122,4 +128,4 @@ curl http://localhost:8080/v1/workers
 - Dead-letter queue and richer retry policies.
 - WebSocket updates for dashboard state and logs.
 - Docker sandbox executor.
-- Metrics endpoint and dashboard observability views.
+- Prometheus-compatible metrics export.
