@@ -40,6 +40,43 @@ export type QueueStatus = {
   capacity: number;
 };
 
+export type RuntimeMetrics = {
+  generated_at: string;
+  queue: {
+    queued: number;
+    capacity: number;
+    utilization: number;
+  };
+  jobs: {
+    total: number;
+    by_status: Partial<Record<JobStatus, number>>;
+    attempts: number;
+    retry_attempts: number;
+    leased: number;
+    expired_leases: number;
+  };
+  workers: {
+    total: number;
+    by_status: Partial<Record<WorkerStatus, number>>;
+    active: number;
+    running: number;
+    heartbeat: number;
+  };
+  workflows: {
+    total: number;
+    enabled: number;
+    disabled: number;
+    due: number;
+    run_records: number;
+  };
+  postings: {
+    total: number;
+  };
+  results: {
+    total: number;
+  };
+};
+
 export type Posting = {
   id: string;
   company: string;
@@ -167,6 +204,10 @@ export async function fetchResults(): Promise<Result[]> {
 
 export function fetchQueue(): Promise<QueueStatus> {
   return request<QueueStatus>("/v1/queue");
+}
+
+export function fetchMetrics(): Promise<RuntimeMetrics> {
+  return request<RuntimeMetrics>("/v1/metrics");
 }
 
 export function fetchHealth(): Promise<HealthStatus> {

@@ -612,6 +612,57 @@ textarea {
   background: #1769aa;
 }
 
+.metrics-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px;
+}
+
+.metric-row {
+  align-items: center;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+}
+
+.metric-row span {
+  color: #607080;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.metric-row strong {
+  color: #17202a;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.metric-row.warning {
+  background: #fff4f4;
+  border-color: #e5a7a7;
+}
+
+.metric-row.warning span,
+.metric-row.warning strong {
+  color: #9f1f18;
+}
+
+.metric-row.attention {
+  background: #fff9e8;
+  border-color: #efd17a;
+}
+
+.metric-row.attention span,
+.metric-row.attention strong {
+  color: #7a5200;
+}
+
 .job-detail {
   display: grid;
   gap: 14px;
@@ -778,7 +829,8 @@ textarea {
 
   .summary-grid,
   .field-row,
-  .detail-grid {
+  .detail-grid,
+  .metrics-panel {
     grid-template-columns: 1fr;
   }
 

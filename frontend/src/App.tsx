@@ -23,6 +23,7 @@ import {
   createWorkflow,
   fetchHealth,
   fetchJobs,
+  fetchMetrics,
   fetchPostings,
   fetchQueue,
   fetchResults,
@@ -34,6 +35,7 @@ import {
   Posting,
   QueueStatus,
   Result,
+  RuntimeMetrics,
   runWorkflow,
   updateWorkflow,
   Worker,
@@ -157,6 +159,7 @@ export function App() {
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
+  const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
   const [commandPrompt, setCommandPrompt] = useState(
@@ -198,19 +201,22 @@ export function App() {
 
   async function refresh() {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextPostings, nextWorkflows, nextRuns, nextResults] = await Promise.all([
-        fetchHealth(),
-        fetchJobs(),
-        fetchWorkers(),
-        fetchQueue(),
-        fetchPostings(),
-        fetchWorkflows(),
-        fetchWorkflowRuns(),
-        fetchResults()
-      ]);
+      const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults] =
+        await Promise.all([
+          fetchHealth(),
+          fetchJobs(),
+          fetchWorkers(),
+          fetchQueue(),
+          fetchMetrics(),
+          fetchPostings(),
+          fetchWorkflows(),
+          fetchWorkflowRuns(),
+          fetchResults()
+        ]);
       setJobs(nextJobs);
       setWorkers(nextWorkers);
       setQueue(nextQueue);
+      setMetrics(nextMetrics);
       setPostings(nextPostings);
       setWorkflows(nextWorkflows);
       setWorkflowRuns(nextRuns);
@@ -345,6 +351,12 @@ export function App() {
         <Panel title="Queue" subtitle="In-memory capacity">
           <QueueMeter queue={queue} fill={queueFill} />
         </Panel>
+        <Panel
+          title="Runtime Metrics"
+          subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
+        >
+          <RuntimeMetricsPanel metrics={metrics} loading={loading} />
+        </Panel>
         <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
           <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
@@ -397,6 +409,12 @@ export function App() {
         </Panel>
         <Panel title="Queue" subtitle="In-memory capacity">
           <QueueMeter queue={queue} fill={queueFill} />
+        </Panel>
+        <Panel
+          title="Runtime Metrics"
+          subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
+        >
+          <RuntimeMetricsPanel metrics={metrics} loading={loading} />
         </Panel>
       </section>
     ),
@@ -541,6 +559,56 @@ function QueueMeter({ queue, fill }: { queue: QueueStatus; fill: number }) {
         <div className="meter-fill" style={{ width: `${fill}%` }} />
       </div>
     </>
+  );
+}
+
+function RuntimeMetricsPanel({ metrics, loading }: { metrics: RuntimeMetrics | null; loading: boolean }) {
+  if (loading) {
+    return <EmptyState label="Loading metrics" />;
+  }
+  if (!metrics) {
+    return <EmptyState label="Metrics unavailable" />;
+  }
+
+  const queuePercent = Math.round(metrics.queue.utilization * 100);
+
+  return (
+    <div className="metrics-panel">
+      <div className="metric-row">
+        <span>Queue utilization</span>
+        <strong>{queuePercent}%</strong>
+      </div>
+      <div className="metric-row">
+        <span>Active workers</span>
+        <strong>
+          {metrics.workers.active}/{metrics.workers.total}
+        </strong>
+      </div>
+      <div className="metric-row">
+        <span>Retry attempts</span>
+        <strong>{metrics.jobs.retry_attempts}</strong>
+      </div>
+      <div className="metric-row">
+        <span>Leased jobs</span>
+        <strong>{metrics.jobs.leased}</strong>
+      </div>
+      <div className={`metric-row ${metrics.jobs.expired_leases > 0 ? "warning" : ""}`}>
+        <span>Expired leases</span>
+        <strong>{metrics.jobs.expired_leases}</strong>
+      </div>
+      <div className={`metric-row ${metrics.workflows.due > 0 ? "attention" : ""}`}>
+        <span>Due workflows</span>
+        <strong>{metrics.workflows.due}</strong>
+      </div>
+      <div className="metric-row">
+        <span>Run records</span>
+        <strong>{metrics.workflows.run_records}</strong>
+      </div>
+      <div className="metric-row">
+        <span>Total attempts</span>
+        <strong>{metrics.jobs.attempts}</strong>
+      </div>
+    </div>
   );
 }
 
