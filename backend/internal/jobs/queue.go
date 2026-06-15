@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var ErrQueueFull = errors.New("job queue is full")
@@ -53,4 +54,65 @@ func (q *MemoryQueue) Len() int {
 
 func (q *MemoryQueue) Cap() int {
 	return cap(q.ch)
+}
+
+type StoreQueue struct {
+	store     Store
+	pollDelay time.Duration
+}
+
+func NewStoreQueue(store Store, pollDelay time.Duration) *StoreQueue {
+	if pollDelay <= 0 {
+		pollDelay = 250 * time.Millisecond
+	}
+	return &StoreQueue{store: store, pollDelay: pollDelay}
+}
+
+func (q *StoreQueue) Enqueue(ctx context.Context, jobID string) error {
+	_, err := q.store.Get(jobID)
+	if err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (q *StoreQueue) Dequeue(ctx context.Context) (string, error) {
+	for {
+		jobs, err := q.store.List()
+		if err != nil {
+			return "", err
+		}
+		for i := len(jobs) - 1; i >= 0; i-- {
+			if jobs[i].Status == StatusQueued {
+				return jobs[i].ID, nil
+			}
+		}
+
+		timer := time.NewTimer(q.pollDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (q *StoreQueue) Len() int {
+	jobs, err := q.store.List()
+	if err != nil {
+		return 0
+	}
+
+	queued := 0
+	for _, job := range jobs {
+		if job.Status == StatusQueued {
+			queued++
+		}
+	}
+	return queued
+}
+
+func (q *StoreQueue) Cap() int {
+	return 0
 }
