@@ -95,7 +95,7 @@ The project is organized around production orchestration concerns:
 - **Idempotent scheduling:** scheduled workflow dispatches use `workflow_id + scheduled_for` idempotency keys so duplicate scheduler ticks do not create duplicate workflow runs.
 - **Workflow audit trail:** workflow definitions are separate from workflow runs; runs track trigger type, scheduled timestamp, idempotency key, linked job, and reconciled execution status.
 - **Persistence boundary:** in-memory stores support fast local development, while Postgres stores persist jobs, logs, workflows, workflow runs, postings, and results.
-- **Observability:** the dashboard shows queue depth, runtime metrics, workers, job logs, workflow run history, posting matches, structured results, and alert status. The API also exposes Prometheus-compatible metrics at `/metrics`.
+- **Observability:** the dashboard shows queue depth, runtime metrics, workers, job logs, workflow run history, posting matches, structured results, and alert status. The API also exposes Prometheus-compatible metrics at `/metrics` and live runtime snapshots at `/v1/events`.
 
 ## English Job Requests
 

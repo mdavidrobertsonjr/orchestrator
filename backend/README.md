@@ -151,6 +151,12 @@ Cancel a queued job:
 curl -X POST http://localhost:8080/v1/jobs/<job-id>/cancel
 ```
 
+Retry a failed, dead-lettered, or canceled job:
+
+```bash
+curl -X POST http://localhost:8080/v1/jobs/<job-id>/retry
+```
+
 Queue status:
 
 ```bash
@@ -173,6 +179,12 @@ Worker status:
 
 ```bash
 curl http://localhost:8080/v1/workers
+```
+
+Server-sent runtime snapshots:
+
+```bash
+curl http://localhost:8080/v1/events
 ```
 
 ## Roadmap
