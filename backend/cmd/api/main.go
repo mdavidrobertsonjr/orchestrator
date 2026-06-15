@@ -33,7 +33,6 @@ func main() {
 	}))
 
 	cfg := configFromEnv()
-	queue := jobs.NewMemoryQueue(cfg.QueueSize)
 	registry := workers.NewMemoryRegistry()
 	planner := buildPlanner(cfg, logger)
 
@@ -46,6 +45,8 @@ func main() {
 		return
 	}
 	defer closeStore()
+
+	queue, hydrateQueue := buildQueue(cfg, store, logger)
 
 	postingStore, closePostingStore, err := buildPostingStore(ctx, cfg, logger)
 	if err != nil {
@@ -80,9 +81,11 @@ func main() {
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, emailSender)
 	executor.SetDefaultRecipients(cfg.DefaultRecipients)
 
-	if err := enqueuePendingJobs(ctx, store, queue); err != nil {
-		logger.Error("failed to hydrate pending jobs", "error", err)
-		return
+	if hydrateQueue {
+		if err := enqueuePendingJobs(ctx, store, queue); err != nil {
+			logger.Error("failed to hydrate pending jobs", "error", err)
+			return
+		}
 	}
 
 	pool := worker.NewPoolWithRuns(worker.PoolConfig{
@@ -143,6 +146,7 @@ func main() {
 type config struct {
 	Addr                  string
 	QueueSize             int
+	QueueBackend          string
 	WorkerCount           int
 	DatabaseURL           string
 	AutoMigrateDB         bool
@@ -162,6 +166,7 @@ func configFromEnv() config {
 	return config{
 		Addr:                  envString("ORCH_ADDR", ":8080"),
 		QueueSize:             envInt("ORCH_QUEUE_SIZE", 128),
+		QueueBackend:          os.Getenv("ORCH_QUEUE_BACKEND"),
 		WorkerCount:           envInt("ORCH_WORKERS", 2),
 		DatabaseURL:           os.Getenv("ORCH_DATABASE_URL"),
 		AutoMigrateDB:         envBool("ORCH_AUTO_MIGRATE", true),
@@ -176,6 +181,20 @@ func configFromEnv() config {
 		SMTPFrom:              os.Getenv("ORCH_SMTP_FROM"),
 		DefaultRecipients:     envStringList("ORCH_DEFAULT_RECIPIENTS"),
 	}
+}
+
+func buildQueue(cfg config, store jobs.Store, logger *slog.Logger) (jobs.Queue, bool) {
+	backend := strings.ToLower(strings.TrimSpace(cfg.QueueBackend))
+	if backend == "" && cfg.DatabaseURL != "" {
+		backend = "store"
+	}
+	if backend == "store" {
+		logger.Info("using store-backed job queue")
+		return jobs.NewStoreQueue(store, 250*time.Millisecond), false
+	}
+
+	logger.Info("using in-memory job queue")
+	return jobs.NewMemoryQueue(cfg.QueueSize), true
 }
 
 func buildPlanner(cfg config, logger *slog.Logger) llm.Planner {

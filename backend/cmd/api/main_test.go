@@ -2,10 +2,45 @@ package main
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
 )
+
+func TestBuildQueueDefaultsToMemoryWithoutDatabase(t *testing.T) {
+	queue, hydrate := buildQueue(config{QueueSize: 3}, jobs.NewMemoryStore(), testLogger())
+	if _, ok := queue.(*jobs.MemoryQueue); !ok {
+		t.Fatalf("expected memory queue, got %T", queue)
+	}
+	if !hydrate {
+		t.Fatal("expected memory queue to require startup hydration")
+	}
+	if queue.Cap() != 3 {
+		t.Fatalf("expected configured capacity 3, got %d", queue.Cap())
+	}
+}
+
+func TestBuildQueueDefaultsToStoreWithDatabase(t *testing.T) {
+	queue, hydrate := buildQueue(config{DatabaseURL: "postgres://example"}, jobs.NewMemoryStore(), testLogger())
+	if _, ok := queue.(*jobs.StoreQueue); !ok {
+		t.Fatalf("expected store queue, got %T", queue)
+	}
+	if hydrate {
+		t.Fatal("did not expect store queue to require startup hydration")
+	}
+}
+
+func TestBuildQueueHonorsExplicitMemoryBackend(t *testing.T) {
+	queue, hydrate := buildQueue(config{DatabaseURL: "postgres://example", QueueBackend: "memory"}, jobs.NewMemoryStore(), testLogger())
+	if _, ok := queue.(*jobs.MemoryQueue); !ok {
+		t.Fatalf("expected memory queue, got %T", queue)
+	}
+	if !hydrate {
+		t.Fatal("expected explicit memory queue to require startup hydration")
+	}
+}
 
 func TestEnqueuePendingJobs(t *testing.T) {
 	store := jobs.NewMemoryStore()
@@ -55,4 +90,8 @@ func TestEnqueuePendingJobs(t *testing.T) {
 	if got[succeeded.ID] {
 		t.Fatalf("did not expect succeeded job %s to be requeued", succeeded.ID)
 	}
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
