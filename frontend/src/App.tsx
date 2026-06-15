@@ -709,6 +709,7 @@ function WorkflowForm({
           <option value="jobs.monitor.new_grad">jobs.monitor.new_grad</option>
           <option value="report.email">report.email</option>
           <option value="video.transcode">video.transcode</option>
+          <option value="http.request">http.request</option>
           <option value="scrape.url">scrape.url</option>
           <option value="data.pipeline">data.pipeline</option>
         </select>

@@ -113,6 +113,24 @@ curl -X POST http://localhost:8080/v1/jobs \
   }'
 ```
 
+Submit an HTTP request job:
+
+```bash
+curl -X POST http://localhost:8080/v1/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "check-api",
+    "type": "http.request",
+    "max_attempts": 2,
+    "payload": {
+      "method": "GET",
+      "url": "https://example.com/health",
+      "timeout_ms": 5000,
+      "duration_ms": 100
+    }
+  }'
+```
+
 List jobs:
 
 ```bash
