@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -117,6 +118,89 @@ func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 	}
 	if results[0].Type != "monitor.summary" {
 		t.Fatalf("expected monitor summary result, got %#v", results[0])
+	}
+}
+
+func TestSimulatedExecutorRunsHTTPRequest(t *testing.T) {
+	resultStore := results.NewMemoryStore()
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, resultStore, nil)
+	executor.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		if r.Header.Get("X-Test") != "yes" {
+			t.Fatalf("expected X-Test header")
+		}
+		return response(http.StatusCreated, "created"), nil
+	})})
+	job := &jobs.Job{
+		ID:   "job-1",
+		Type: "http.request",
+		Payload: map[string]any{
+			"duration_ms": float64(100),
+			"method":      "POST",
+			"url":         "https://example.com/create",
+			"headers": map[string]any{
+				"X-Test": "yes",
+			},
+			"body": "payload",
+		},
+		Metadata: map[string]string{"workflow_id": "workflow-1"},
+	}
+
+	var logs []string
+	if err := executor.Execute(t.Context(), job, func(message string) {
+		logs = append(logs, message)
+	}); err != nil {
+		t.Fatalf("execute http request: %v", err)
+	}
+	if !containsLog(logs, "http request completed with status 201") {
+		t.Fatalf("expected http completion log, got %#v", logs)
+	}
+
+	stored, err := resultStore.ListByJob(job.ID)
+	if err != nil {
+		t.Fatalf("list results: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Type != "http.response" || stored[0].WorkflowID != "workflow-1" {
+		t.Fatalf("expected http response result, got %#v", stored)
+	}
+	if stored[0].Data["status_code"] != 201 {
+		t.Fatalf("expected status code result data, got %#v", stored[0].Data)
+	}
+}
+
+func TestSimulatedExecutorHTTPRequestFailsOnServerError(t *testing.T) {
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, results.NewMemoryStore(), nil)
+	executor.SetHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return response(http.StatusServiceUnavailable, ""), nil
+	})})
+	job := &jobs.Job{
+		ID:   "job-1",
+		Type: "http.request",
+		Payload: map[string]any{
+			"duration_ms": float64(100),
+			"url":         "https://example.com/unavailable",
+		},
+	}
+
+	err := executor.Execute(t.Context(), job, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "retryable status 503") {
+		t.Fatalf("expected retryable status error, got %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func response(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
 	}
 }
 

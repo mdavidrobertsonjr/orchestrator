@@ -1,11 +1,14 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -25,6 +28,7 @@ type SimulatedExecutor struct {
 	results           results.Store
 	emailSender       email.Sender
 	defaultRecipients []string
+	httpClient        *http.Client
 }
 
 func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, resultStore results.Store, emailSender email.Sender) *SimulatedExecutor {
@@ -33,6 +37,10 @@ func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, re
 
 func (e *SimulatedExecutor) SetDefaultRecipients(recipients []string) {
 	e.defaultRecipients = cleanRecipients(recipients)
+}
+
+func (e *SimulatedExecutor) SetHTTPClient(client *http.Client) {
+	e.httpClient = client
 }
 
 func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
@@ -59,6 +67,10 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 		if err := e.sendEmailReport(ctx, job.Payload, sender, logf); err != nil {
 			return err
 		}
+	} else if job.Type == "http.request" {
+		if err := e.executeHTTPRequest(ctx, job, logf); err != nil {
+			return err
+		}
 	}
 	logf(fmt.Sprintf("simulating work for %s", duration))
 
@@ -76,6 +88,95 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	}
 
 	logf("executor completed work")
+	return nil
+}
+
+func (e *SimulatedExecutor) executeHTTPRequest(ctx context.Context, job *jobs.Job, logf func(string)) error {
+	var payload struct {
+		Method  string            `json:"method"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+		Body    string            `json:"body"`
+		Timeout int               `json:"timeout_ms"`
+	}
+	data, err := json.Marshal(job.Payload)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	payload.Method = strings.ToUpper(strings.TrimSpace(payload.Method))
+	if payload.Method == "" {
+		payload.Method = http.MethodGet
+	}
+	payload.URL = strings.TrimSpace(payload.URL)
+	if payload.URL == "" {
+		return errors.New("http.request payload requires url")
+	}
+
+	timeout := time.Duration(payload.Timeout) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	client := e.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	} else if client.Timeout == 0 {
+		copy := *client
+		copy.Timeout = timeout
+		client = &copy
+	}
+	req, err := http.NewRequestWithContext(ctx, payload.Method, payload.URL, bytes.NewBufferString(payload.Body))
+	if err != nil {
+		return err
+	}
+	for key, value := range payload.Headers {
+		req.Header.Set(key, value)
+	}
+
+	logf(fmt.Sprintf("http request started: %s %s", payload.Method, payload.URL))
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return err
+	}
+	logf(fmt.Sprintf("http request completed with status %d", resp.StatusCode))
+
+	if e.results != nil {
+		workflowID := ""
+		if job.Metadata != nil {
+			workflowID = job.Metadata["workflow_id"]
+		}
+		if _, err := e.results.Create(results.CreateResultParams{
+			JobID:      job.ID,
+			WorkflowID: workflowID,
+			Type:       "http.response",
+			Summary:    fmt.Sprintf("%s %s returned %d", payload.Method, payload.URL, resp.StatusCode),
+			Data: map[string]any{
+				"method":      payload.Method,
+				"url":         payload.URL,
+				"status_code": resp.StatusCode,
+				"body_bytes":  len(body),
+			},
+		}); err != nil {
+			return err
+		}
+	}
+
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("http request returned retryable status %d", resp.StatusCode)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("http request returned status %d", resp.StatusCode)
+	}
 	return nil
 }
 
