@@ -98,6 +98,7 @@ func main() {
 	if cfg.EmbeddedWorkers {
 		pool = worker.NewPoolWithRuns(worker.PoolConfig{
 			WorkerCount:       cfg.WorkerCount,
+			WorkerIDPrefix:    cfg.WorkerIDPrefix,
 			PollDelay:         250 * time.Millisecond,
 			HeartbeatInterval: 5 * time.Second,
 		}, queue, store, runStore, executor, registry, logger)
@@ -161,6 +162,7 @@ type config struct {
 	QueueSize             int
 	QueueBackend          string
 	WorkerCount           int
+	WorkerIDPrefix        string
 	EmbeddedWorkers       bool
 	DatabaseURL           string
 	AutoMigrateDB         bool
@@ -182,6 +184,7 @@ func configFromEnv() config {
 		QueueSize:             envInt("ORCH_QUEUE_SIZE", 128),
 		QueueBackend:          os.Getenv("ORCH_QUEUE_BACKEND"),
 		WorkerCount:           envInt("ORCH_WORKERS", 2),
+		WorkerIDPrefix:        envString("ORCH_WORKER_ID", "worker"),
 		EmbeddedWorkers:       envBool("ORCH_EMBEDDED_WORKERS", true),
 		DatabaseURL:           os.Getenv("ORCH_DATABASE_URL"),
 		AutoMigrateDB:         envBool("ORCH_AUTO_MIGRATE", true),

@@ -15,6 +15,7 @@ import (
 
 type PoolConfig struct {
 	WorkerCount        int
+	WorkerIDPrefix     string
 	PollDelay          time.Duration
 	HeartbeatInterval  time.Duration
 	LeaseDuration      time.Duration
@@ -39,6 +40,9 @@ func NewPool(config PoolConfig, queue jobs.Queue, store jobs.Store, executor Exe
 func NewPoolWithRuns(config PoolConfig, queue jobs.Queue, store jobs.Store, runStore workflowruns.Store, executor Executor, registry workers.Registry, logger *slog.Logger) *Pool {
 	if config.WorkerCount <= 0 {
 		config.WorkerCount = 1
+	}
+	if config.WorkerIDPrefix == "" {
+		config.WorkerIDPrefix = "worker"
 	}
 	if config.PollDelay <= 0 {
 		config.PollDelay = 250 * time.Millisecond
@@ -85,7 +89,7 @@ func (p *Pool) Wait() {
 }
 
 func (p *Pool) runWorker(ctx context.Context, workerID int) {
-	id := "worker-" + strconv.Itoa(workerID)
+	id := p.config.WorkerIDPrefix + "-" + strconv.Itoa(workerID)
 	logger := p.logger.With("worker_id", id)
 	logger.Info("worker started")
 

@@ -70,6 +70,8 @@ ORCH_DATABASE_URL='postgres://user:password@localhost:5432/orchestrator?sslmode=
   go run ./cmd/worker
 ```
 
+Set `ORCH_WORKER_ID` to choose the worker ID prefix shown in `/v1/workers`; worker processes append a numeric slot suffix such as `worker-hostname-1`.
+
 Run the API as a control plane only, with no embedded workers:
 
 ```bash

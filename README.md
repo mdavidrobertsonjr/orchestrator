@@ -57,6 +57,12 @@ Run the API, dashboard, and a separate worker process against Postgres:
 make dev-distributed
 ```
 
+Run a distributed smoke test that starts Postgres, runs the API without embedded workers, starts a standalone worker, submits a job, and verifies worker/metrics visibility:
+
+```bash
+make smoke-distributed
+```
+
 Stop Postgres when you are done:
 
 ```bash

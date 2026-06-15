@@ -57,10 +57,14 @@ func TestBuildWorkerRegistryDefaultsToMemoryWithoutDatabase(t *testing.T) {
 
 func TestConfigFromEnvCanDisableEmbeddedWorkers(t *testing.T) {
 	t.Setenv("ORCH_EMBEDDED_WORKERS", "false")
+	t.Setenv("ORCH_WORKER_ID", "api-a")
 
 	cfg := configFromEnv()
 	if cfg.EmbeddedWorkers {
 		t.Fatal("expected embedded workers to be disabled")
+	}
+	if cfg.WorkerIDPrefix != "api-a" {
+		t.Fatalf("expected worker prefix api-a, got %q", cfg.WorkerIDPrefix)
 	}
 }
 

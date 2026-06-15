@@ -77,6 +77,7 @@ func main() {
 
 	pool := worker.NewPoolWithRuns(worker.PoolConfig{
 		WorkerCount:       cfg.WorkerCount,
+		WorkerIDPrefix:    cfg.WorkerIDPrefix,
 		PollDelay:         cfg.QueuePollDelay,
 		HeartbeatInterval: cfg.HeartbeatInterval,
 	}, queue, jobStore, runStore, executor, registry, logger)
@@ -93,6 +94,7 @@ type config struct {
 	DatabaseURL       string
 	AutoMigrateDB     bool
 	WorkerCount       int
+	WorkerIDPrefix    string
 	QueuePollDelay    time.Duration
 	HeartbeatInterval time.Duration
 	SMTPHost          string
@@ -108,6 +110,7 @@ func configFromEnv() config {
 		DatabaseURL:       os.Getenv("ORCH_DATABASE_URL"),
 		AutoMigrateDB:     envBool("ORCH_AUTO_MIGRATE", true),
 		WorkerCount:       envInt("ORCH_WORKERS", 1),
+		WorkerIDPrefix:    envString("ORCH_WORKER_ID", defaultWorkerIDPrefix()),
 		QueuePollDelay:    time.Duration(envInt("ORCH_QUEUE_POLL_MS", 250)) * time.Millisecond,
 		HeartbeatInterval: time.Duration(envInt("ORCH_HEARTBEAT_SECONDS", 5)) * time.Second,
 		SMTPHost:          os.Getenv("ORCH_SMTP_HOST"),
@@ -117,6 +120,14 @@ func configFromEnv() config {
 		SMTPFrom:          os.Getenv("ORCH_SMTP_FROM"),
 		DefaultRecipients: envStringList("ORCH_DEFAULT_RECIPIENTS"),
 	}
+}
+
+func defaultWorkerIDPrefix() string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		return "worker"
+	}
+	return "worker-" + hostname
 }
 
 func buildJobStore(ctx context.Context, cfg config, logger *slog.Logger) (*jobs.PostgresStore, func(), error) {
@@ -229,6 +240,14 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envString(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func envBool(key string, fallback bool) bool {

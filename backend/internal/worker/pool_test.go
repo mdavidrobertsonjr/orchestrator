@@ -206,6 +206,26 @@ func TestPoolRegistersAndStopsWorkers(t *testing.T) {
 	}
 }
 
+func TestPoolUsesConfiguredWorkerIDPrefix(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	registry := workers.NewMemoryRegistry()
+	executor := &fakeExecutor{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := NewPool(PoolConfig{
+		WorkerCount:       1,
+		WorkerIDPrefix:    "external",
+		PollDelay:         time.Millisecond,
+		HeartbeatInterval: time.Millisecond,
+	}, queue, store, executor, registry, testLogger())
+	pool.Start(ctx)
+
+	waitForWorkerStatus(t, registry, "external-1", workers.StatusIdle)
+	cancel()
+	pool.Wait()
+}
+
 type fakeExecutor struct {
 	mu       sync.Mutex
 	outcomes []error
