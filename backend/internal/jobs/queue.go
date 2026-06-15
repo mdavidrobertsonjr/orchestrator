@@ -15,6 +15,11 @@ type Queue interface {
 	Cap() int
 }
 
+type ClaimQueue interface {
+	Queue
+	Claim(ctx context.Context, workerID string, leaseUntil time.Time) (*Job, error)
+}
+
 type MemoryQueue struct {
 	ch chan string
 }
@@ -74,6 +79,26 @@ func (q *StoreQueue) Enqueue(ctx context.Context, jobID string) error {
 		return err
 	}
 	return ctx.Err()
+}
+
+func (q *StoreQueue) Claim(ctx context.Context, workerID string, leaseUntil time.Time) (*Job, error) {
+	for {
+		job, err := q.store.ClaimQueued(workerID, leaseUntil)
+		if err == nil {
+			return job, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+
+		timer := time.NewTimer(q.pollDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (q *StoreQueue) Dequeue(ctx context.Context) (string, error) {

@@ -110,6 +110,13 @@ func (p *Pool) runWorker(ctx context.Context, workerID int) {
 			logger.Error("failed to mark worker idle", "error", err)
 		}
 
+		if claimQueue, ok := p.queue.(jobs.ClaimQueue); ok {
+			if !p.claimAndExecute(ctx, logger, id, claimQueue) {
+				return
+			}
+			continue
+		}
+
 		jobID, err := p.queue.Dequeue(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -126,6 +133,25 @@ func (p *Pool) runWorker(ctx context.Context, workerID int) {
 
 		p.execute(ctx, logger, id, jobID)
 	}
+}
+
+func (p *Pool) claimAndExecute(ctx context.Context, logger *slog.Logger, workerID string, queue jobs.ClaimQueue) bool {
+	job, err := queue.Claim(ctx, workerID, time.Now().UTC().Add(p.config.LeaseDuration))
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return false
+		}
+		logger.Error("claim failed", "error", err)
+		sleep(ctx, p.config.PollDelay)
+		return true
+	}
+
+	if _, err := p.registry.MarkRunning(workerID, job.ID); err != nil {
+		logger.Error("failed to mark worker running", "job_id", job.ID, "error", err)
+	}
+
+	p.executeClaimed(ctx, logger, job)
+	return true
 }
 
 func (p *Pool) heartbeatLoop(ctx context.Context, workerID string, logger *slog.Logger) {
@@ -150,6 +176,10 @@ func (p *Pool) execute(ctx context.Context, logger *slog.Logger, workerID string
 		logger.Error("failed to mark job running", "job_id", jobID, "error", err)
 		return
 	}
+	p.executeClaimed(ctx, logger, job)
+}
+
+func (p *Pool) executeClaimed(ctx context.Context, logger *slog.Logger, job *jobs.Job) {
 	jl := jobLogger(logger, job)
 	p.markRunStatus(job.ID, string(jobs.StatusRunning), jl)
 	jl.Info("job execution started", "type", job.Type)

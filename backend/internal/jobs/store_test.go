@@ -71,6 +71,44 @@ func TestMemoryStoreRequeuesExpiredLease(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreClaimsOldestQueuedJob(t *testing.T) {
+	store := NewMemoryStore()
+	first, err := store.Create(CreateJobParams{Name: "first", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create first job: %v", err)
+	}
+	second, err := store.Create(CreateJobParams{Name: "second", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create second job: %v", err)
+	}
+
+	claimed, err := store.ClaimQueued("worker-1", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim queued job: %v", err)
+	}
+	if claimed.ID != first.ID {
+		t.Fatalf("expected oldest job %q, got %q", first.ID, claimed.ID)
+	}
+	if claimed.Status != StatusRunning || claimed.Attempts != 1 || claimed.LeaseOwner != "worker-1" || claimed.LeaseUntil == nil {
+		t.Fatalf("unexpected claimed job: %#v", claimed)
+	}
+
+	next, err := store.ClaimQueued("worker-2", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("claim second queued job: %v", err)
+	}
+	if next.ID != second.ID {
+		t.Fatalf("expected second job %q, got %q", second.ID, next.ID)
+	}
+}
+
+func TestMemoryStoreClaimQueuedNotFound(t *testing.T) {
+	store := NewMemoryStore()
+	if _, err := store.ClaimQueued("worker-1", time.Now().Add(time.Minute)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreDeadLettersExpiredLeaseAfterAttempts(t *testing.T) {
 	store := NewMemoryStore()
 	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep", MaxAttempts: 1})

@@ -179,6 +179,30 @@ ORDER BY created_at DESC
 	return out, nil
 }
 
+func (s *PostgresStore) ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error) {
+	now := time.Now().UTC()
+	var lease any
+	if !leaseUntil.IsZero() {
+		lease = leaseUntil.UTC()
+	}
+	return s.transition("", "job started", func(ctx context.Context, tx *sql.Tx) (*Job, error) {
+		return scanJob(tx.QueryRowContext(ctx, `
+WITH next_job AS (
+	SELECT id
+	FROM jobs
+	WHERE status = $1
+	ORDER BY created_at ASC
+	FOR UPDATE SKIP LOCKED
+	LIMIT 1
+)
+UPDATE jobs
+SET status = $2, attempts = attempts + 1, updated_at = $3, started_at = $3, finished_at = NULL, error = '', lease_owner = $4, lease_until = $5
+WHERE id = (SELECT id FROM next_job)
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, StatusQueued, StatusRunning, now, workerID, lease))
+	})
+}
+
 func (s *PostgresStore) MarkRunning(id string) (*Job, error) {
 	return s.MarkRunningWithLease(id, "", time.Time{})
 }
@@ -355,11 +379,11 @@ func (s *PostgresStore) transition(id string, logMessage string, update func(con
 
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO job_logs (job_id, time, message) VALUES ($1, $2, $3)
-`, id, now, logMessage); err != nil {
+`, transitionJobID(id, job), now, logMessage); err != nil {
 		return nil, err
 	}
 
-	job.Logs, err = s.logs(ctx, tx, id)
+	job.Logs, err = s.logs(ctx, tx, transitionJobID(id, job))
 	if err != nil {
 		return nil, err
 	}
@@ -369,6 +393,16 @@ INSERT INTO job_logs (job_id, time, message) VALUES ($1, $2, $3)
 	}
 
 	return cloneJob(job), nil
+}
+
+func transitionJobID(id string, job *Job) string {
+	if id != "" {
+		return id
+	}
+	if job == nil {
+		return ""
+	}
+	return job.ID
 }
 
 func (s *PostgresStore) get(ctx context.Context, q queryer, id string) (*Job, error) {

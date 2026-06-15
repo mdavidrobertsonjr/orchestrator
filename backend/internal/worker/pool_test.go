@@ -84,6 +84,31 @@ func TestPoolRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestPoolExecutesJobFromStoreBackedQueue(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewStoreQueue(store, time.Millisecond)
+	registry := workers.NewMemoryRegistry()
+	executor := &fakeExecutor{}
+
+	job, err := store.Create(jobs.CreateJobParams{Name: "demo", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := NewPool(PoolConfig{WorkerCount: 1, PollDelay: time.Millisecond, HeartbeatInterval: time.Millisecond}, queue, store, executor, registry, testLogger())
+	pool.Start(ctx)
+	defer func() {
+		cancel()
+		pool.Wait()
+	}()
+
+	got := waitForJobStatus(t, store, job.ID, jobs.StatusSucceeded)
+	if got.Attempts != 1 || got.LeaseOwner != "" {
+		t.Fatalf("expected completed claimed job, got %#v", got)
+	}
+}
+
 func TestPoolMovesJobToDeadLetterAfterAttemptsExhausted(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)

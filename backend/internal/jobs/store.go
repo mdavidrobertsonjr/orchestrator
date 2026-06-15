@@ -15,6 +15,7 @@ type Store interface {
 	Create(params CreateJobParams) (*Job, error)
 	Get(id string) (*Job, error)
 	List() ([]*Job, error)
+	ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error)
 	MarkRunning(id string) (*Job, error)
 	MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error)
 	MarkQueued(id string, message string) (*Job, error)
@@ -92,6 +93,42 @@ func (s *MemoryStore) List() ([]*Job, error) {
 	})
 
 	return out, nil
+}
+
+func (s *MemoryStore) ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var selected *Job
+	for _, job := range s.jobs {
+		if job.Status != StatusQueued {
+			continue
+		}
+		if selected == nil || job.CreatedAt.Before(selected.CreatedAt) {
+			selected = job
+		}
+	}
+	if selected == nil {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	selected.Status = StatusRunning
+	selected.Attempts++
+	selected.UpdatedAt = now
+	selected.StartedAt = &now
+	selected.FinishedAt = nil
+	selected.Error = ""
+	selected.LeaseOwner = workerID
+	if !leaseUntil.IsZero() {
+		leaseUntil = leaseUntil.UTC()
+		selected.LeaseUntil = &leaseUntil
+	} else {
+		selected.LeaseUntil = nil
+	}
+	selected.Logs = append(selected.Logs, LogEntry{Time: now, Message: "job started"})
+
+	return cloneJob(selected), nil
 }
 
 func (s *MemoryStore) MarkRunning(id string) (*Job, error) {
