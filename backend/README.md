@@ -86,6 +86,12 @@ Health check:
 curl http://localhost:8080/healthz
 ```
 
+Readiness check:
+
+```bash
+curl http://localhost:8080/readyz
+```
+
 Submit a job:
 
 ```bash
