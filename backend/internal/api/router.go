@@ -67,6 +67,7 @@ func NewRouter(config Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.handleHealth)
+	mux.HandleFunc("GET /readyz", server.handleReady)
 	mux.HandleFunc("GET /metrics", server.handlePrometheusMetrics)
 	mux.HandleFunc("POST /v1/commands/natural", server.handleCreateNaturalCommand)
 	mux.HandleFunc("GET /v1/jobs", server.handleListJobs)
@@ -176,6 +177,70 @@ type collectionMetrics struct {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	checks := map[string]string{}
+	ready := true
+
+	if err := readinessCheck("jobs", checks, func() error {
+		_, err := s.store.List()
+		return err
+	}); err != nil {
+		ready = false
+	}
+	if s.workflows != nil {
+		if err := readinessCheck("workflows", checks, func() error {
+			_, err := s.workflows.List()
+			return err
+		}); err != nil {
+			ready = false
+		}
+	}
+	if s.runs != nil {
+		if err := readinessCheck("workflow_runs", checks, func() error {
+			_, err := s.runs.List()
+			return err
+		}); err != nil {
+			ready = false
+		}
+	}
+	if s.postings != nil {
+		if err := readinessCheck("postings", checks, func() error {
+			_, err := s.postings.List()
+			return err
+		}); err != nil {
+			ready = false
+		}
+	}
+	if s.results != nil {
+		if err := readinessCheck("results", checks, func() error {
+			_, err := s.results.List()
+			return err
+		}); err != nil {
+			ready = false
+		}
+	}
+
+	status := http.StatusOK
+	state := "ready"
+	if !ready {
+		status = http.StatusServiceUnavailable
+		state = "not_ready"
+	}
+	writeJSON(w, status, map[string]any{
+		"status": state,
+		"checks": checks,
+	})
+}
+
+func readinessCheck(name string, checks map[string]string, check func() error) error {
+	if err := check(); err != nil {
+		checks[name] = "error"
+		return err
+	}
+	checks[name] = "ok"
+	return nil
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {

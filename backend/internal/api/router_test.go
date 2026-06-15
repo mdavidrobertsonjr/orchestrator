@@ -68,6 +68,43 @@ func TestCreateJobQueuesJob(t *testing.T) {
 	}
 }
 
+func TestReadiness(t *testing.T) {
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Postings:  postings.NewMemoryStore(),
+		Workflows: workflows.NewMemoryStore(),
+		Runs:      workflowruns.NewMemoryStore(),
+		Results:   results.NewMemoryStore(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Status string            `json:"status"`
+		Checks map[string]string `json:"checks"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Status != "ready" {
+		t.Fatalf("expected ready status, got %q", response.Status)
+	}
+	for _, check := range []string{"jobs", "postings", "workflows", "workflow_runs", "results"} {
+		if response.Checks[check] != "ok" {
+			t.Fatalf("expected %s check ok, got %#v", check, response.Checks)
+		}
+	}
+}
+
 func TestCreateJobValidation(t *testing.T) {
 	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
 
