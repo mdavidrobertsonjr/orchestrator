@@ -69,6 +69,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /healthz", server.handleHealth)
 	mux.HandleFunc("GET /readyz", server.handleReady)
 	mux.HandleFunc("GET /metrics", server.handlePrometheusMetrics)
+	mux.HandleFunc("GET /v1/events", server.handleEvents)
 	mux.HandleFunc("POST /v1/commands/natural", server.handleCreateNaturalCommand)
 	mux.HandleFunc("GET /v1/jobs", server.handleListJobs)
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
@@ -176,6 +177,14 @@ type collectionMetrics struct {
 	Total int `json:"total"`
 }
 
+type eventSnapshot struct {
+	GeneratedAt time.Time       `json:"generated_at"`
+	Queue       queueMetrics    `json:"queue"`
+	Jobs        jobMetrics      `json:"jobs"`
+	Workers     workerMetrics   `json:"workers"`
+	Workflows   workflowMetrics `json:"workflows"`
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -233,6 +242,61 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		"status": state,
 		"checks": checks,
 	})
+}
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	if !s.writeSnapshotEvent(w) {
+		return
+	}
+	flush(w)
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if !s.writeSnapshotEvent(w) {
+				return
+			}
+			flush(w)
+		}
+	}
+}
+
+func (s *Server) writeSnapshotEvent(w http.ResponseWriter) bool {
+	metrics, ok := s.collectMetrics(w)
+	if !ok {
+		return false
+	}
+	snapshot := eventSnapshot{
+		GeneratedAt: metrics.GeneratedAt,
+		Queue:       metrics.Queue,
+		Jobs:        metrics.Jobs,
+		Workers:     metrics.Workers,
+		Workflows:   metrics.Workflows,
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		s.logger.Error("failed to encode event snapshot", "error", err)
+		return false
+	}
+	if _, err := fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", data); err != nil {
+		return false
+	}
+	return true
+}
+
+func flush(w http.ResponseWriter) {
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func readinessCheck(name string, checks map[string]string, check func() error) error {

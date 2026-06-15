@@ -693,6 +693,31 @@ func TestPrometheusMetricsEndpoint(t *testing.T) {
 	}
 }
 
+func TestEventsEndpointWritesSnapshot(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	if _, err := store.Create(jobs.CreateJobParams{Name: "queued", Type: "demo.sleep"}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	router := testRouter(store, jobs.NewMemoryQueue(2))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "text/event-stream" {
+		t.Fatalf("expected event stream content type, got %q", contentType)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: snapshot") || !strings.Contains(body, `"total":1`) {
+		t.Fatalf("expected snapshot event, got:\n%s", body)
+	}
+}
+
 func TestCORSPreflightForDevFrontend(t *testing.T) {
 	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
 

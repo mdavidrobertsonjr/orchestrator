@@ -1,5 +1,9 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
+export function eventStreamURL(): string {
+  return `${API_BASE_URL}/v1/events`;
+}
+
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "dead_letter" | "canceled";
 
 export type Job = {

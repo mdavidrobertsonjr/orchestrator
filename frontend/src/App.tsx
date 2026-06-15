@@ -22,6 +22,7 @@ import {
   createJob,
   createNaturalCommand,
   createWorkflow,
+  eventStreamURL,
   fetchHealth,
   fetchJobs,
   fetchMetrics,
@@ -236,8 +237,25 @@ export function App() {
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 2500);
-    return () => window.clearInterval(interval);
+    if (typeof EventSource === "undefined") {
+      const interval = setInterval(() => void refresh(), 2500);
+      return () => clearInterval(interval);
+    }
+
+    let fallback: ReturnType<typeof setInterval> | undefined;
+    const events = new EventSource(eventStreamURL());
+    events.addEventListener("snapshot", () => void refresh());
+    events.onerror = () => {
+      events.close();
+      fallback = setInterval(() => void refresh(), 2500);
+    };
+
+    return () => {
+      events.close();
+      if (fallback !== undefined) {
+        clearInterval(fallback);
+      }
+    };
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
