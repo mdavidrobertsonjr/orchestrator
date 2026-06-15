@@ -419,6 +419,15 @@ td span {
   background: #f5f8fb;
 }
 
+.table-action.danger {
+  border-color: #e5a7a7;
+  color: #9f1f18;
+}
+
+.table-action.danger:hover {
+  background: #fff4f4;
+}
+
 .table-actions {
   display: flex;
   flex-wrap: wrap;

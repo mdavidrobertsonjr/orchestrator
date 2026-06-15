@@ -18,6 +18,7 @@ import {
   XCircle
 } from "lucide-react";
 import {
+  cancelJob,
   createJob,
   createNaturalCommand,
   createWorkflow,
@@ -339,6 +340,20 @@ export function App() {
     }
   }
 
+  async function handleCancelJob(job: Job) {
+    setError(null);
+
+    try {
+      await cancelJob(job.id);
+      if (selectedJobID === job.id) {
+        setSelectedJobID(job.id);
+      }
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to cancel job");
+    }
+  }
+
   const queueFill = queue.capacity ? (queue.queued / queue.capacity) * 100 : 0;
 
   const overviewPanels = (
@@ -346,7 +361,13 @@ export function App() {
       <SummaryGrid summary={summary} />
       <section className="dashboard-grid">
         <Panel title="Recent Jobs" subtitle={`${jobs.length} tracked executions`}>
-          <JobsTable jobs={jobs.slice(0, 8)} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
+          <JobsTable
+            jobs={jobs.slice(0, 8)}
+            selectedJobID={selectedJob?.id}
+            onSelect={setSelectedJobID}
+            onCancel={(job) => void handleCancelJob(job)}
+            loading={loading}
+          />
         </Panel>
         <Panel title="Queue" subtitle="In-memory capacity">
           <QueueMeter queue={queue} fill={queueFill} />
@@ -372,7 +393,13 @@ export function App() {
     jobs: (
       <section className="split-view">
         <Panel title="Jobs" subtitle={`${jobs.length} tracked executions`}>
-          <JobsTable jobs={jobs} selectedJobID={selectedJob?.id} onSelect={setSelectedJobID} loading={loading} />
+          <JobsTable
+            jobs={jobs}
+            selectedJobID={selectedJob?.id}
+            onSelect={setSelectedJobID}
+            onCancel={(job) => void handleCancelJob(job)}
+            loading={loading}
+          />
         </Panel>
         <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
           {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
@@ -817,11 +844,13 @@ function JobsTable({
   jobs,
   selectedJobID,
   onSelect,
+  onCancel,
   loading
 }: {
   jobs: Job[];
   selectedJobID?: string;
   onSelect: (id: string) => void;
+  onCancel: (job: Job) => void;
   loading: boolean;
 }) {
   if (loading) {
@@ -841,6 +870,7 @@ function JobsTable({
             <th>Status</th>
             <th>Attempts</th>
             <th>Updated</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -862,6 +892,25 @@ function JobsTable({
                 {job.attempts}/{job.max_attempts}
               </td>
               <td>{relativeTime(job.updated_at)}</td>
+              <td>
+                {job.status === "queued" ? (
+                  <button
+                    className="table-action danger"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCancel(job);
+                    }}
+                    aria-label="Cancel queued job"
+                    title="Cancel queued job"
+                  >
+                    <XCircle size={16} />
+                    Cancel
+                  </button>
+                ) : (
+                  "-"
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
