@@ -259,6 +259,18 @@ RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, me
 	})
 }
 
+func (s *PostgresStore) Retry(id string, message string) (*Job, error) {
+	now := time.Now().UTC()
+	return s.transition(id, message, func(ctx context.Context, tx *sql.Tx) (*Job, error) {
+		return scanJob(tx.QueryRowContext(ctx, `
+UPDATE jobs
+SET status = $2, attempts = 0, error = '', updated_at = $3, started_at = NULL, finished_at = NULL, lease_owner = '', lease_until = NULL
+WHERE id = $1 AND status IN ($4, $5, $6)
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, id, StatusQueued, now, StatusFailed, StatusDeadLetter, StatusCanceled))
+	})
+}
+
 func (s *PostgresStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
 	now = now.UTC()
 	ctx, cancel := s.context()

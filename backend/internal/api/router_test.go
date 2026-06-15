@@ -444,6 +444,80 @@ func TestCancelRunningJobReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestRetryTerminalJob(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	runStore := workflowruns.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:   queue,
+		Store:   store,
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runs:    runStore,
+	})
+
+	job, err := store.Create(jobs.CreateJobParams{Name: "dead", Type: "demo.sleep", MaxAttempts: 2})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+	if _, err := store.MarkDeadLetter(job.ID, "boom"); err != nil {
+		t.Fatalf("mark dead letter: %v", err)
+	}
+	run, err := runStore.Create(workflowruns.CreateRunParams{WorkflowID: "workflow-1", JobID: job.ID, Trigger: "manual", Status: string(jobs.StatusDeadLetter)})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+job.ID+"/retry", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusAccepted, rec.Code, rec.Body.String())
+	}
+	var retried jobs.Job
+	if err := json.NewDecoder(rec.Body).Decode(&retried); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if retried.Status != jobs.StatusQueued || retried.Attempts != 0 {
+		t.Fatalf("expected queued retry with reset attempts, got %#v", retried)
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("expected retried job to be enqueued, got queue length %d", queue.Len())
+	}
+
+	updatedRun, err := runStore.Get(run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if updatedRun.Status != string(jobs.StatusQueued) {
+		t.Fatalf("expected queued run status, got %q", updatedRun.Status)
+	}
+}
+
+func TestRetryRunningJobReturnsNotFound(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	router := testRouter(store, jobs.NewMemoryQueue(2))
+	job, err := store.Create(jobs.CreateJobParams{Name: "running", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+job.ID+"/retry", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusNotFound, rec.Code, rec.Body.String())
+	}
+}
+
 func TestQueueStatus(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(3)

@@ -75,6 +75,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/jobs/natural", server.handleCreateNaturalJob)
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
 	mux.HandleFunc("POST /v1/jobs/{id}/cancel", server.handleCancelJob)
+	mux.HandleFunc("POST /v1/jobs/{id}/retry", server.handleRetryJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
 	mux.HandleFunc("GET /v1/metrics", server.handleMetrics)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
@@ -448,6 +449,27 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 
 	s.markRunStatus(job.ID, string(jobs.StatusCanceled))
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.store.Retry(r.PathValue("id"), "job queued for operator retry")
+	if err != nil {
+		if errors.Is(err, jobs.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "retryable job not found")
+			return
+		}
+		s.logger.Error("failed to retry job", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to retry job")
+		return
+	}
+	if err := s.queue.Enqueue(r.Context(), job.ID); err != nil {
+		s.logger.Error("failed to enqueue retried job", "job_id", job.ID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "queue is unavailable")
+		return
+	}
+
+	s.markRunStatus(job.ID, string(jobs.StatusQueued))
+	writeJSON(w, http.StatusAccepted, job)
 }
 
 func (s *Server) markRunStatus(jobID string, status string) {

@@ -208,6 +208,46 @@ func TestMemoryStoreDoesNotCancelRunningJob(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreRetriesTerminalJob(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep", MaxAttempts: 2})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+	if _, err := store.MarkDeadLetter(job.ID, "boom"); err != nil {
+		t.Fatalf("mark dead letter: %v", err)
+	}
+
+	retried, err := store.Retry(job.ID, "job retried")
+	if err != nil {
+		t.Fatalf("retry job: %v", err)
+	}
+	if retried.Status != StatusQueued || retried.Attempts != 0 || retried.Error != "" || retried.FinishedAt != nil {
+		t.Fatalf("unexpected retried job: %#v", retried)
+	}
+	if !hasStoreLog(retried, "job retried") {
+		t.Fatalf("expected retry log, got %#v", retried.Logs)
+	}
+}
+
+func TestMemoryStoreDoesNotRetryRunningJob(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	if _, err := store.Retry(job.ID, "job retried"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 
@@ -224,4 +264,13 @@ func TestMemoryStoreNotFound(t *testing.T) {
 	if err := store.AppendLog("missing", "log"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound from append log, got %v", err)
 	}
+}
+
+func hasStoreLog(job *Job, message string) bool {
+	for _, entry := range job.Logs {
+		if entry.Message == message {
+			return true
+		}
+	}
+	return false
 }

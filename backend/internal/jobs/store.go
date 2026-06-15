@@ -23,6 +23,7 @@ type Store interface {
 	MarkFailed(id string, errMessage string) (*Job, error)
 	MarkDeadLetter(id string, errMessage string) (*Job, error)
 	MarkCanceled(id string, message string) (*Job, error)
+	Retry(id string, message string) (*Job, error)
 	RequeueExpiredLeases(now time.Time) ([]*Job, error)
 	AppendLog(id string, message string) error
 }
@@ -219,6 +220,29 @@ func (s *MemoryStore) MarkCanceled(id string, message string) (*Job, error) {
 	return cloneJob(job), nil
 }
 
+func (s *MemoryStore) Retry(id string, message string) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[id]
+	if !ok || !retryableStatus(job.Status) {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	job.Status = StatusQueued
+	job.Attempts = 0
+	job.Error = ""
+	job.UpdatedAt = now
+	job.StartedAt = nil
+	job.FinishedAt = nil
+	job.LeaseOwner = ""
+	job.LeaseUntil = nil
+	job.Logs = append(job.Logs, LogEntry{Time: now, Message: message})
+
+	return cloneJob(job), nil
+}
+
 func (s *MemoryStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -246,6 +270,10 @@ func (s *MemoryStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
 		out = append(out, cloneJob(job))
 	}
 	return out, nil
+}
+
+func retryableStatus(status Status) bool {
+	return status == StatusFailed || status == StatusDeadLetter || status == StatusCanceled
 }
 
 func (s *MemoryStore) AppendLog(id string, message string) error {
