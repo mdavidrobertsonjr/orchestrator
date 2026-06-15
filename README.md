@@ -51,6 +51,12 @@ Or run the single-server website with Postgres:
 make website-postgres
 ```
 
+Run the API, dashboard, and a separate worker process against Postgres:
+
+```bash
+make dev-distributed
+```
+
 Stop Postgres when you are done:
 
 ```bash
@@ -72,7 +78,7 @@ The demo creates a workflow, triggers `Run now`, stores a normalized posting, re
 The project is organized around production orchestration concerns:
 
 - **Control plane:** HTTP API for jobs, workflows, workflow runs, results, workers, queue state, postings, and natural-language commands.
-- **Queue and workers:** queued jobs are claimed by workers, executed through typed executors, retried when possible, and moved to `dead_letter` after attempts are exhausted.
+- **Queue and workers:** queued jobs are claimed by embedded or standalone workers, executed through typed executors, retried when possible, and moved to `dead_letter` after attempts are exhausted.
 - **Leasing and recovery:** workers claim jobs with leases; a lease reclaimer requeues stale running jobs or dead-letters them when retry budget is exhausted.
 - **Idempotent scheduling:** scheduled workflow dispatches use `workflow_id + scheduled_for` idempotency keys so duplicate scheduler ticks do not create duplicate workflow runs.
 - **Workflow audit trail:** workflow definitions are separate from workflow runs; runs track trigger type, scheduled timestamp, idempotency key, linked job, and reconciled execution status.

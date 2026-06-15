@@ -8,7 +8,7 @@ endif
 POSTGRES_URL := postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 BACKEND_ENV := GOCACHE=/tmp/go-build-cache ORCH_ADDR=:8080 ORCH_WORKERS=2
 
-.PHONY: dev dev-postgres website website-postgres frontend backend postgres postgres-stop demo test
+.PHONY: dev dev-postgres dev-distributed website website-postgres frontend backend worker postgres postgres-stop demo test
 
 dev:
 	(cd backend && env $(BACKEND_ENV) go run ./cmd/api) & \
@@ -20,6 +20,14 @@ dev-postgres: postgres
 	(cd backend && env $(BACKEND_ENV) ORCH_DATABASE_URL='$(POSTGRES_URL)' go run ./cmd/api) & \
 	backend_pid=$$!; \
 	trap 'kill $$backend_pid 2>/dev/null' EXIT INT TERM; \
+	cd frontend && npm run dev
+
+dev-distributed: postgres
+	(cd backend && env $(BACKEND_ENV) ORCH_DATABASE_URL='$(POSTGRES_URL)' ORCH_EMBEDDED_WORKERS=false go run ./cmd/api) & \
+	api_pid=$$!; \
+	(cd backend && env GOCACHE=/tmp/go-build-cache ORCH_DATABASE_URL='$(POSTGRES_URL)' ORCH_WORKERS=1 go run ./cmd/worker) & \
+	worker_pid=$$!; \
+	trap 'kill $$api_pid $$worker_pid 2>/dev/null' EXIT INT TERM; \
 	cd frontend && npm run dev
 
 website:
@@ -35,6 +43,9 @@ frontend:
 
 backend:
 	cd backend && env $(BACKEND_ENV) go run ./cmd/api
+
+worker: postgres
+	cd backend && env GOCACHE=/tmp/go-build-cache ORCH_DATABASE_URL='$(POSTGRES_URL)' ORCH_WORKERS=1 go run ./cmd/worker
 
 postgres:
 	docker compose up -d postgres

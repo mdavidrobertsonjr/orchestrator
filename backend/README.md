@@ -61,7 +61,22 @@ ORCH_DATABASE_URL='postgres://user:password@localhost:5432/orchestrator?sslmode=
 
 When `ORCH_DATABASE_URL` is set, the server stores jobs and logs in Postgres and runs the built-in schema migration on startup. Set `ORCH_AUTO_MIGRATE=false` to skip schema setup.
 
-The queue is still in memory. On startup, queued or running persisted jobs are loaded back into the queue so unfinished work can continue.
+When `ORCH_DATABASE_URL` is set, the API defaults to a store-backed queue so separate processes can observe the same queued jobs. Set `ORCH_QUEUE_BACKEND=memory` to force the original in-memory queue.
+
+Run a standalone worker against the same Postgres database:
+
+```bash
+ORCH_DATABASE_URL='postgres://user:password@localhost:5432/orchestrator?sslmode=disable' \
+  go run ./cmd/worker
+```
+
+Run the API as a control plane only, with no embedded workers:
+
+```bash
+ORCH_EMBEDDED_WORKERS=false \
+ORCH_DATABASE_URL='postgres://user:password@localhost:5432/orchestrator?sslmode=disable' \
+  go run ./cmd/api
+```
 
 ## API
 

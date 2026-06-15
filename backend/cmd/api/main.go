@@ -88,12 +88,17 @@ func main() {
 		}
 	}
 
-	pool := worker.NewPoolWithRuns(worker.PoolConfig{
-		WorkerCount:       cfg.WorkerCount,
-		PollDelay:         250 * time.Millisecond,
-		HeartbeatInterval: 5 * time.Second,
-	}, queue, store, runStore, executor, registry, logger)
-	pool.Start(ctx)
+	var pool *worker.Pool
+	if cfg.EmbeddedWorkers {
+		pool = worker.NewPoolWithRuns(worker.PoolConfig{
+			WorkerCount:       cfg.WorkerCount,
+			PollDelay:         250 * time.Millisecond,
+			HeartbeatInterval: 5 * time.Second,
+		}, queue, store, runStore, executor, registry, logger)
+		pool.Start(ctx)
+	} else {
+		logger.Info("embedded workers disabled")
+	}
 
 	scheduled := scheduler.NewWithRuns(scheduler.Config{
 		PollInterval: cfg.SchedulerPollInterval,
@@ -139,7 +144,9 @@ func main() {
 		logger.Error("api server shutdown failed", "error", err)
 	}
 
-	pool.Wait()
+	if pool != nil {
+		pool.Wait()
+	}
 	logger.Info("shutdown complete")
 }
 
@@ -148,6 +155,7 @@ type config struct {
 	QueueSize             int
 	QueueBackend          string
 	WorkerCount           int
+	EmbeddedWorkers       bool
 	DatabaseURL           string
 	AutoMigrateDB         bool
 	StaticDir             string
@@ -168,6 +176,7 @@ func configFromEnv() config {
 		QueueSize:             envInt("ORCH_QUEUE_SIZE", 128),
 		QueueBackend:          os.Getenv("ORCH_QUEUE_BACKEND"),
 		WorkerCount:           envInt("ORCH_WORKERS", 2),
+		EmbeddedWorkers:       envBool("ORCH_EMBEDDED_WORKERS", true),
 		DatabaseURL:           os.Getenv("ORCH_DATABASE_URL"),
 		AutoMigrateDB:         envBool("ORCH_AUTO_MIGRATE", true),
 		StaticDir:             envOptionalString("ORCH_STATIC_DIR", "../frontend/dist"),

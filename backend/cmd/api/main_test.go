@@ -42,6 +42,15 @@ func TestBuildQueueHonorsExplicitMemoryBackend(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvCanDisableEmbeddedWorkers(t *testing.T) {
+	t.Setenv("ORCH_EMBEDDED_WORKERS", "false")
+
+	cfg := configFromEnv()
+	if cfg.EmbeddedWorkers {
+		t.Fatal("expected embedded workers to be disabled")
+	}
+}
+
 func TestEnqueuePendingJobs(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queued, err := store.Create(jobs.CreateJobParams{Name: "queued", Type: "demo.queued"})
