@@ -286,6 +286,12 @@ export function cancelJob(id: string): Promise<Job> {
   });
 }
 
+export function retryJob(id: string): Promise<Job> {
+  return request<Job>(`/v1/jobs/${id}/retry`, {
+    method: "POST"
+  });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, init);
   if (!response.ok) {

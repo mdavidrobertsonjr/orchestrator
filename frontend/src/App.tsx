@@ -36,6 +36,7 @@ import {
   Posting,
   QueueStatus,
   Result,
+  retryJob,
   RuntimeMetrics,
   runWorkflow,
   updateWorkflow,
@@ -354,6 +355,18 @@ export function App() {
     }
   }
 
+  async function handleRetryJob(job: Job) {
+    setError(null);
+
+    try {
+      await retryJob(job.id);
+      setSelectedJobID(job.id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to retry job");
+    }
+  }
+
   const queueFill = queue.capacity ? (queue.queued / queue.capacity) * 100 : 0;
 
   const overviewPanels = (
@@ -366,6 +379,7 @@ export function App() {
             selectedJobID={selectedJob?.id}
             onSelect={setSelectedJobID}
             onCancel={(job) => void handleCancelJob(job)}
+            onRetry={(job) => void handleRetryJob(job)}
             loading={loading}
           />
         </Panel>
@@ -398,6 +412,7 @@ export function App() {
             selectedJobID={selectedJob?.id}
             onSelect={setSelectedJobID}
             onCancel={(job) => void handleCancelJob(job)}
+            onRetry={(job) => void handleRetryJob(job)}
             loading={loading}
           />
         </Panel>
@@ -845,12 +860,14 @@ function JobsTable({
   selectedJobID,
   onSelect,
   onCancel,
+  onRetry,
   loading
 }: {
   jobs: Job[];
   selectedJobID?: string;
   onSelect: (id: string) => void;
   onCancel: (job: Job) => void;
+  onRetry: (job: Job) => void;
   loading: boolean;
 }) {
   if (loading) {
@@ -893,20 +910,39 @@ function JobsTable({
               </td>
               <td>{relativeTime(job.updated_at)}</td>
               <td>
-                {job.status === "queued" ? (
-                  <button
-                    className="table-action danger"
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onCancel(job);
-                    }}
-                    aria-label="Cancel queued job"
-                    title="Cancel queued job"
-                  >
-                    <XCircle size={16} />
-                    Cancel
-                  </button>
+                {job.status === "queued" || isRetryableJob(job) ? (
+                  <div className="table-actions no-wrap">
+                    {job.status === "queued" && (
+                      <button
+                        className="table-action danger"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCancel(job);
+                        }}
+                        aria-label="Cancel queued job"
+                        title="Cancel queued job"
+                      >
+                        <XCircle size={16} />
+                        Cancel
+                      </button>
+                    )}
+                    {isRetryableJob(job) && (
+                      <button
+                        className="table-action"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetry(job);
+                        }}
+                        aria-label="Retry job"
+                        title="Retry job"
+                      >
+                        <RefreshCw size={16} />
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   "-"
                 )}
@@ -917,6 +953,10 @@ function JobsTable({
       </table>
     </div>
   );
+}
+
+function isRetryableJob(job: Job) {
+  return job.status === "failed" || job.status === "dead_letter" || job.status === "canceled";
 }
 
 function WorkersTable({ workers, loading }: { workers: Worker[]; loading: boolean }) {

@@ -434,6 +434,10 @@ td span {
   gap: 8px;
 }
 
+.table-actions.no-wrap {
+  flex-wrap: nowrap;
+}
+
 .link-button {
   background: transparent;
   border: 0;
