@@ -33,7 +33,6 @@ func main() {
 	}))
 
 	cfg := configFromEnv()
-	registry := workers.NewMemoryRegistry()
 	planner := buildPlanner(cfg, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,6 +46,13 @@ func main() {
 	defer closeStore()
 
 	queue, hydrateQueue := buildQueue(cfg, store, logger)
+
+	registry, closeRegistry, err := buildWorkerRegistry(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize worker registry", "error", err)
+		return
+	}
+	defer closeRegistry()
 
 	postingStore, closePostingStore, err := buildPostingStore(ctx, cfg, logger)
 	if err != nil {
@@ -204,6 +210,31 @@ func buildQueue(cfg config, store jobs.Store, logger *slog.Logger) (jobs.Queue, 
 
 	logger.Info("using in-memory job queue")
 	return jobs.NewMemoryQueue(cfg.QueueSize), true
+}
+
+func buildWorkerRegistry(ctx context.Context, cfg config, logger *slog.Logger) (workers.Registry, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory worker registry")
+		return workers.NewMemoryRegistry(), func() {}, nil
+	}
+
+	registry, err := workers.NewPostgresRegistry(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg.AutoMigrateDB {
+		if err := registry.Migrate(ctx); err != nil {
+			_ = registry.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres worker registry")
+	return registry, func() {
+		if err := registry.Close(); err != nil {
+			logger.Error("failed to close postgres worker registry", "error", err)
+		}
+	}, nil
 }
 
 func buildPlanner(cfg config, logger *slog.Logger) llm.Planner {

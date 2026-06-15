@@ -63,8 +63,14 @@ func main() {
 	}
 	defer closeRuns()
 
+	registry, closeRegistry, err := buildWorkerRegistry(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize worker registry", "error", err)
+		os.Exit(1)
+	}
+	defer closeRegistry()
+
 	queue := jobs.NewStoreQueue(jobStore, cfg.QueuePollDelay)
-	registry := workers.NewMemoryRegistry()
 	monitorRunner := monitor.NewRunner(postingStore, nil)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, buildEmailSender(cfg, logger))
 	executor.SetDefaultRecipients(cfg.DefaultRecipients)
@@ -171,6 +177,21 @@ func buildWorkflowRunStore(ctx context.Context, cfg config, logger *slog.Logger)
 	}
 	logger.Info("using postgres workflow run store")
 	return store, closePostgres("workflow run", store.Close, logger), nil
+}
+
+func buildWorkerRegistry(ctx context.Context, cfg config, logger *slog.Logger) (workers.Registry, func(), error) {
+	registry, err := workers.NewPostgresRegistry(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg.AutoMigrateDB {
+		if err := registry.Migrate(ctx); err != nil {
+			_ = registry.Close()
+			return nil, nil, err
+		}
+	}
+	logger.Info("using postgres worker registry")
+	return registry, closePostgres("worker registry", registry.Close, logger), nil
 }
 
 func buildEmailSender(cfg config, logger *slog.Logger) email.Sender {

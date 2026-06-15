@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"orchestrator/backend/internal/jobs"
+	"orchestrator/backend/internal/workers"
 )
 
 func TestBuildQueueDefaultsToMemoryWithoutDatabase(t *testing.T) {
@@ -39,6 +40,18 @@ func TestBuildQueueHonorsExplicitMemoryBackend(t *testing.T) {
 	}
 	if !hydrate {
 		t.Fatal("expected explicit memory queue to require startup hydration")
+	}
+}
+
+func TestBuildWorkerRegistryDefaultsToMemoryWithoutDatabase(t *testing.T) {
+	registry, closeRegistry, err := buildWorkerRegistry(context.Background(), config{}, testLogger())
+	if err != nil {
+		t.Fatalf("build worker registry: %v", err)
+	}
+	defer closeRegistry()
+
+	if _, ok := registry.(*workers.MemoryRegistry); !ok {
+		t.Fatalf("expected memory worker registry, got %T", registry)
 	}
 }
 
