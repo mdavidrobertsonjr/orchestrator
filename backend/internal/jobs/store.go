@@ -21,6 +21,7 @@ type Store interface {
 	MarkSucceeded(id string, message string) (*Job, error)
 	MarkFailed(id string, errMessage string) (*Job, error)
 	MarkDeadLetter(id string, errMessage string) (*Job, error)
+	MarkCanceled(id string, message string) (*Job, error)
 	RequeueExpiredLeases(now time.Time) ([]*Job, error)
 	AppendLog(id string, message string) error
 }
@@ -158,6 +159,27 @@ func (s *MemoryStore) MarkFailed(id string, errMessage string) (*Job, error) {
 
 func (s *MemoryStore) MarkDeadLetter(id string, errMessage string) (*Job, error) {
 	return s.finish(id, StatusDeadLetter, errMessage, "job moved to dead letter: "+errMessage)
+}
+
+func (s *MemoryStore) MarkCanceled(id string, message string) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.jobs[id]
+	if !ok || job.Status != StatusQueued {
+		return nil, ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	job.Status = StatusCanceled
+	job.Error = ""
+	job.UpdatedAt = now
+	job.FinishedAt = &now
+	job.LeaseOwner = ""
+	job.LeaseUntil = nil
+	job.Logs = append(job.Logs, LogEntry{Time: now, Message: message})
+
+	return cloneJob(job), nil
 }
 
 func (s *MemoryStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {

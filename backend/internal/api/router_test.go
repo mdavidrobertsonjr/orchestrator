@@ -342,6 +342,71 @@ func TestGetAndListJobs(t *testing.T) {
 	}
 }
 
+func TestCancelQueuedJob(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	runStore := workflowruns.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:   queue,
+		Store:   store,
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runs:    runStore,
+	})
+
+	job, err := store.Create(jobs.CreateJobParams{Name: "queued", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	run, err := runStore.Create(workflowruns.CreateRunParams{WorkflowID: "workflow-1", JobID: job.ID, Trigger: "manual"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+job.ID+"/cancel", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	var canceled jobs.Job
+	if err := json.NewDecoder(rec.Body).Decode(&canceled); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if canceled.Status != jobs.StatusCanceled {
+		t.Fatalf("expected canceled job, got %#v", canceled)
+	}
+
+	updatedRun, err := runStore.Get(run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if updatedRun.Status != string(jobs.StatusCanceled) {
+		t.Fatalf("expected canceled run status, got %q", updatedRun.Status)
+	}
+}
+
+func TestCancelRunningJobReturnsNotFound(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	router := testRouter(store, jobs.NewMemoryQueue(2))
+	job, err := store.Create(jobs.CreateJobParams{Name: "running", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+job.ID+"/cancel", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusNotFound, rec.Code, rec.Body.String())
+	}
+}
+
 func TestQueueStatus(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(3)

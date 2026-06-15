@@ -133,6 +133,43 @@ func TestMemoryStoreStateTransitions(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCancelsQueuedJob(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	canceled, err := store.MarkCanceled(job.ID, "job canceled")
+	if err != nil {
+		t.Fatalf("mark canceled: %v", err)
+	}
+	if canceled.Status != StatusCanceled {
+		t.Fatalf("expected canceled status, got %q", canceled.Status)
+	}
+	if canceled.FinishedAt == nil {
+		t.Fatal("expected finished timestamp")
+	}
+	if len(canceled.Logs) != 2 || canceled.Logs[1].Message != "job canceled" {
+		t.Fatalf("expected cancel log, got %#v", canceled.Logs)
+	}
+}
+
+func TestMemoryStoreDoesNotCancelRunningJob(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "demo", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.MarkRunning(job.ID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	if _, err := store.MarkCanceled(job.ID, "job canceled"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 

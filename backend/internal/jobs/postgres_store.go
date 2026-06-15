@@ -223,6 +223,18 @@ func (s *PostgresStore) MarkDeadLetter(id string, errMessage string) (*Job, erro
 	return s.finish(id, StatusDeadLetter, errMessage, "job moved to dead letter: "+errMessage)
 }
 
+func (s *PostgresStore) MarkCanceled(id string, message string) (*Job, error) {
+	now := time.Now().UTC()
+	return s.transition(id, message, func(ctx context.Context, tx *sql.Tx) (*Job, error) {
+		return scanJob(tx.QueryRowContext(ctx, `
+UPDATE jobs
+SET status = $2, error = '', updated_at = $3, finished_at = $3, lease_owner = '', lease_until = NULL
+WHERE id = $1 AND status = $4
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, id, StatusCanceled, now, StatusQueued))
+	})
+}
+
 func (s *PostgresStore) RequeueExpiredLeases(now time.Time) ([]*Job, error) {
 	now = now.UTC()
 	ctx, cancel := s.context()

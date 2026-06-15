@@ -73,6 +73,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
 	mux.HandleFunc("POST /v1/jobs/natural", server.handleCreateNaturalJob)
 	mux.HandleFunc("GET /v1/jobs/{id}", server.handleGetJob)
+	mux.HandleFunc("POST /v1/jobs/{id}/cancel", server.handleCancelJob)
 	mux.HandleFunc("GET /v1/queue", server.handleQueue)
 	mux.HandleFunc("GET /v1/metrics", server.handleMetrics)
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
@@ -366,6 +367,31 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.store.MarkCanceled(r.PathValue("id"), "job canceled")
+	if err != nil {
+		if errors.Is(err, jobs.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "queued job not found")
+			return
+		}
+		s.logger.Error("failed to cancel job", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to cancel job")
+		return
+	}
+
+	s.markRunStatus(job.ID, string(jobs.StatusCanceled))
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) markRunStatus(jobID string, status string) {
+	if s.runs == nil {
+		return
+	}
+	if _, err := s.runs.MarkStatusByJob(jobID, status); err != nil && !errors.Is(err, workflowruns.ErrNotFound) {
+		s.logger.Error("failed to update workflow run status", "job_id", jobID, "status", status, "error", err)
+	}
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
