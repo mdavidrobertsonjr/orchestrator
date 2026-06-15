@@ -63,6 +63,12 @@ Run a distributed smoke test that starts Postgres, runs the API without embedded
 make smoke-distributed
 ```
 
+Run the containerized API, worker, and Postgres deployment shape:
+
+```bash
+make compose-app
+```
+
 Stop Postgres when you are done:
 
 ```bash

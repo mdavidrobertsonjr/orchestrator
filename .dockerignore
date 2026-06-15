@@ -1,0 +1,7 @@
+.git
+.agents
+.codex
+backend/tmp
+frontend/dist
+frontend/node_modules
+**/.DS_Store

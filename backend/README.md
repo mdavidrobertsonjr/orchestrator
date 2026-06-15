@@ -80,6 +80,8 @@ ORCH_DATABASE_URL='postgres://user:password@localhost:5432/orchestrator?sslmode=
   go run ./cmd/api
 ```
 
+The root Dockerfile has separate `api` and `worker` targets, and `docker compose --profile app up --build` runs the API, a standalone worker, and Postgres together.
+
 ## API
 
 Health check:
