@@ -481,6 +481,42 @@ func TestMetricsSummarizesRuntimeState(t *testing.T) {
 	}
 }
 
+func TestPrometheusMetricsEndpoint(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(2)
+	registry := workers.NewMemoryRegistry()
+	if _, err := store.Create(jobs.CreateJobParams{Name: "queued", Type: "demo.sleep"}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := registry.Register("worker-1"); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+
+	router := testRouterWithWorkers(store, queue, registry)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", contentType)
+	}
+
+	body := rec.Body.String()
+	for _, expected := range []string{
+		"orchestrator_jobs_total 1\n",
+		`orchestrator_jobs_by_status{status="queued"} 1`,
+		"orchestrator_workers_total 1\n",
+		`orchestrator_workers_by_status{status="idle"} 1`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected metrics body to contain %q, got:\n%s", expected, body)
+		}
+	}
+}
+
 func TestCORSPreflightForDevFrontend(t *testing.T) {
 	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
 

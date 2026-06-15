@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -65,6 +67,7 @@ func NewRouter(config Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.handleHealth)
+	mux.HandleFunc("GET /metrics", server.handlePrometheusMetrics)
 	mux.HandleFunc("POST /v1/commands/natural", server.handleCreateNaturalCommand)
 	mux.HandleFunc("GET /v1/jobs", server.handleListJobs)
 	mux.HandleFunc("POST /v1/jobs", server.handleCreateJob)
@@ -386,11 +389,29 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	response, ok := s.collectMetrics(w)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics, ok := s.collectMetrics(w)
+	if !ok {
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(prometheusMetrics(metrics)))
+}
+
+func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 	jobs, err := s.store.List()
 	if err != nil {
 		s.logger.Error("failed to list jobs for metrics", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to collect metrics")
-		return
+		return metricsResponse{}, false
 	}
 
 	now := time.Now().UTC()
@@ -445,7 +466,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("failed to list workflows for metrics", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
-			return
+			return metricsResponse{}, false
 		}
 		response.Workflows.Total = len(workflows)
 		for _, workflow := range workflows {
@@ -465,7 +486,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("failed to list workflow runs for metrics", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
-			return
+			return metricsResponse{}, false
 		}
 		response.Workflows.RunRecords = len(runs)
 	}
@@ -475,7 +496,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("failed to list postings for metrics", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
-			return
+			return metricsResponse{}, false
 		}
 		response.Postings.Total = len(postings)
 	}
@@ -485,12 +506,57 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("failed to list results for metrics", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
-			return
+			return metricsResponse{}, false
 		}
 		response.Results.Total = len(results)
 	}
 
-	writeJSON(w, http.StatusOK, response)
+	return response, true
+}
+
+func prometheusMetrics(metrics metricsResponse) string {
+	var out bytes.Buffer
+	writePromMetric(&out, "orchestrator_queue_queued", nil, float64(metrics.Queue.Queued))
+	writePromMetric(&out, "orchestrator_queue_capacity", nil, float64(metrics.Queue.Capacity))
+	writePromMetric(&out, "orchestrator_queue_utilization", nil, metrics.Queue.Utilization)
+	writePromMetric(&out, "orchestrator_jobs_total", nil, float64(metrics.Jobs.Total))
+	for status, count := range metrics.Jobs.ByStatus {
+		writePromMetric(&out, "orchestrator_jobs_by_status", map[string]string{"status": status}, float64(count))
+	}
+	writePromMetric(&out, "orchestrator_job_attempts_total", nil, float64(metrics.Jobs.Attempts))
+	writePromMetric(&out, "orchestrator_job_retry_attempts_total", nil, float64(metrics.Jobs.RetryAttempts))
+	writePromMetric(&out, "orchestrator_job_leases", nil, float64(metrics.Jobs.Leased))
+	writePromMetric(&out, "orchestrator_job_expired_leases", nil, float64(metrics.Jobs.ExpiredLeases))
+	writePromMetric(&out, "orchestrator_workers_total", nil, float64(metrics.Workers.Total))
+	for status, count := range metrics.Workers.ByStatus {
+		writePromMetric(&out, "orchestrator_workers_by_status", map[string]string{"status": status}, float64(count))
+	}
+	writePromMetric(&out, "orchestrator_workers_active", nil, float64(metrics.Workers.Active))
+	writePromMetric(&out, "orchestrator_workers_running", nil, float64(metrics.Workers.Running))
+	writePromMetric(&out, "orchestrator_workflows_total", nil, float64(metrics.Workflows.Total))
+	writePromMetric(&out, "orchestrator_workflows_enabled", nil, float64(metrics.Workflows.Enabled))
+	writePromMetric(&out, "orchestrator_workflows_due", nil, float64(metrics.Workflows.Due))
+	writePromMetric(&out, "orchestrator_workflow_runs_total", nil, float64(metrics.Workflows.RunRecords))
+	writePromMetric(&out, "orchestrator_postings_total", nil, float64(metrics.Postings.Total))
+	writePromMetric(&out, "orchestrator_results_total", nil, float64(metrics.Results.Total))
+	return out.String()
+}
+
+func writePromMetric(out *bytes.Buffer, name string, labels map[string]string, value float64) {
+	out.WriteString(name)
+	if len(labels) > 0 {
+		out.WriteByte('{')
+		i := 0
+		for key, value := range labels {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			fmt.Fprintf(out, `%s=%q`, key, value)
+			i++
+		}
+		out.WriteByte('}')
+	}
+	fmt.Fprintf(out, " %g\n", value)
 }
 
 func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
