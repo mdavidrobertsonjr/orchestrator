@@ -117,6 +117,12 @@ Get one job:
 curl http://localhost:8080/v1/jobs/<job-id>
 ```
 
+Cancel a queued job:
+
+```bash
+curl -X POST http://localhost:8080/v1/jobs/<job-id>/cancel
+```
+
 Queue status:
 
 ```bash
