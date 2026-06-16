@@ -950,7 +950,15 @@ func TestGetAndListPostings(t *testing.T) {
 
 func TestCreateWorkflow(t *testing.T) {
 	workflowStore := workflows.NewMemoryStore()
-	router := testRouterWithWorkflows(workflowStore)
+	resultStore := results.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
+		Results:   resultStore,
+	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/workflows", bytes.NewBufferString(`{
 		"name": "Datadog monitor",
@@ -988,6 +996,17 @@ func TestCreateWorkflow(t *testing.T) {
 	}
 	if workflow.MaxAttempts != 2 {
 		t.Fatalf("expected max attempts 2, got %d", workflow.MaxAttempts)
+	}
+	if workflow.Metadata["owner"] != "api-test" {
+		t.Fatalf("expected owner metadata, got %#v", workflow.Metadata)
+	}
+
+	auditEvents, err := resultStore.ListByWorkflow(workflow.ID)
+	if err != nil {
+		t.Fatalf("list audit events: %v", err)
+	}
+	if len(auditEvents) != 1 || auditEvents[0].Type != "audit.event" || auditEvents[0].Data["action"] != "workflow.created" {
+		t.Fatalf("expected workflow.created audit event, got %#v", auditEvents)
 	}
 }
 

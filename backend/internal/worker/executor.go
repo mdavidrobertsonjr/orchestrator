@@ -186,7 +186,19 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 	}
 
 	config := monitorNotificationConfig(job.Payload)
+	if config.mode == "digest" || config.mode == "digest_only" {
+		logf("monitor alert skipped; digest-only notifications configured")
+		return false, nil
+	}
 	if config.mode != "immediate" {
+		return false, nil
+	}
+	if isQuietHour(config, time.Now()) {
+		logf("monitor alert skipped; quiet hours are active")
+		return false, nil
+	}
+	if e.maxAlertsReached(job, config) {
+		logf("monitor alert skipped; max alerts reached for workflow")
 		return false, nil
 	}
 	if len(config.recipients) == 0 {
@@ -218,8 +230,12 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 }
 
 type notificationConfig struct {
-	mode       string
-	recipients []string
+	mode                 string
+	recipients           []string
+	quietHoursStart      string
+	quietHoursEnd        string
+	timezone             string
+	maxAlertsPerWorkflow int
 }
 
 func monitorNotificationConfig(payload map[string]any) notificationConfig {
@@ -227,8 +243,12 @@ func monitorNotificationConfig(payload map[string]any) notificationConfig {
 		NotificationMode string   `json:"notification_mode"`
 		Recipients       []string `json:"recipients"`
 		Notifications    struct {
-			Mode       string   `json:"mode"`
-			Recipients []string `json:"recipients"`
+			Mode                 string   `json:"mode"`
+			Recipients           []string `json:"recipients"`
+			QuietHoursStart      string   `json:"quiet_hours_start"`
+			QuietHoursEnd        string   `json:"quiet_hours_end"`
+			Timezone             string   `json:"timezone"`
+			MaxAlertsPerWorkflow int      `json:"max_alerts_per_workflow"`
 		} `json:"notifications"`
 	}
 
@@ -245,7 +265,71 @@ func monitorNotificationConfig(payload map[string]any) notificationConfig {
 	if len(recipients) == 0 {
 		recipients = parsed.Recipients
 	}
-	return notificationConfig{mode: mode, recipients: cleanRecipients(recipients)}
+	return notificationConfig{
+		mode:                 mode,
+		recipients:           cleanRecipients(recipients),
+		quietHoursStart:      parsed.Notifications.QuietHoursStart,
+		quietHoursEnd:        parsed.Notifications.QuietHoursEnd,
+		timezone:             parsed.Notifications.Timezone,
+		maxAlertsPerWorkflow: parsed.Notifications.MaxAlertsPerWorkflow,
+	}
+}
+
+func isQuietHour(config notificationConfig, now time.Time) bool {
+	if strings.TrimSpace(config.quietHoursStart) == "" || strings.TrimSpace(config.quietHoursEnd) == "" {
+		return false
+	}
+	location := time.Local
+	if strings.TrimSpace(config.timezone) != "" {
+		if loaded, err := time.LoadLocation(config.timezone); err == nil {
+			location = loaded
+		}
+	}
+	localNow := now.In(location)
+	start, ok := parseClock(config.quietHoursStart, localNow)
+	if !ok {
+		return false
+	}
+	end, ok := parseClock(config.quietHoursEnd, localNow)
+	if !ok {
+		return false
+	}
+	if start.Equal(end) {
+		return false
+	}
+	if start.Before(end) {
+		return !localNow.Before(start) && localNow.Before(end)
+	}
+	return !localNow.Before(start) || localNow.Before(end)
+}
+
+func parseClock(raw string, base time.Time) (time.Time, bool) {
+	parsed, err := time.Parse("15:04", strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.Date(base.Year(), base.Month(), base.Day(), parsed.Hour(), parsed.Minute(), 0, 0, base.Location()), true
+}
+
+func (e *SimulatedExecutor) maxAlertsReached(job *jobs.Job, config notificationConfig) bool {
+	if config.maxAlertsPerWorkflow <= 0 || e.results == nil || job == nil || job.Metadata == nil {
+		return false
+	}
+	workflowID := strings.TrimSpace(job.Metadata["workflow_id"])
+	if workflowID == "" {
+		return false
+	}
+	stored, err := e.results.ListByWorkflow(workflowID)
+	if err != nil {
+		return false
+	}
+	sent := 0
+	for _, result := range stored {
+		if result.Type == "monitor.summary" && result.Data != nil && result.Data["alert_sent"] == true {
+			sent++
+		}
+	}
+	return sent >= config.maxAlertsPerWorkflow
 }
 
 func cleanRecipients(recipients []string) []string {

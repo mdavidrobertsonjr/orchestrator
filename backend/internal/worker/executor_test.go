@@ -262,6 +262,46 @@ func TestSimulatedExecutorSendsImmediateMonitorAlert(t *testing.T) {
 	}
 }
 
+func TestMonitorNotificationPreferences(t *testing.T) {
+	config := monitorNotificationConfig(map[string]any{
+		"notifications": map[string]any{
+			"mode":                    "digest_only",
+			"recipients":              []any{"me@example.com"},
+			"quiet_hours_start":       "22:00",
+			"quiet_hours_end":         "07:00",
+			"timezone":                "America/New_York",
+			"max_alerts_per_workflow": float64(1),
+		},
+	})
+
+	if config.mode != "digest_only" {
+		t.Fatalf("expected digest_only mode, got %q", config.mode)
+	}
+	if config.quietHoursStart != "22:00" || config.quietHoursEnd != "07:00" || config.timezone != "America/New_York" {
+		t.Fatalf("unexpected quiet hour config: %#v", config)
+	}
+	if config.maxAlertsPerWorkflow != 1 {
+		t.Fatalf("expected max alerts 1, got %d", config.maxAlertsPerWorkflow)
+	}
+}
+
+func TestSimulatedExecutorDetectsMaxMonitorAlerts(t *testing.T) {
+	resultStore := results.NewMemoryStore()
+	if _, err := resultStore.Create(results.CreateResultParams{
+		WorkflowID: "workflow-1",
+		Type:       "monitor.summary",
+		Data:       map[string]any{"alert_sent": true},
+	}); err != nil {
+		t.Fatalf("create result: %v", err)
+	}
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, resultStore, nil)
+	job := &jobs.Job{Metadata: map[string]string{"workflow_id": "workflow-1"}}
+
+	if !executor.maxAlertsReached(job, notificationConfig{maxAlertsPerWorkflow: 1}) {
+		t.Fatal("expected max alerts to be reached")
+	}
+}
+
 func TestSimulatedExecutorUsesDefaultMonitorAlertRecipients(t *testing.T) {
 	postingStore := postings.NewMemoryStore()
 	sender := &recordingSender{}

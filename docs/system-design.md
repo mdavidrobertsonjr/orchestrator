@@ -96,6 +96,7 @@ Key entities:
 - `workflow_runs`: audit record for every workflow dispatch, including trigger, job ID, scheduled timestamp, and idempotency key.
 - `postings`: normalized external job postings with source identity, dedupe key, match score, and first/last seen timestamps.
 - `results`: structured outputs such as monitor summaries and HTTP response summaries.
+- `audit.event` results: durable operator/action audit records for job and workflow mutations.
 - `workers`: worker heartbeat, status, and current job.
 
 Indexes support common access paths: status lookup, created-time sorting, due workflows, workflow/job run lookup, posting source/time lookup, and unique workflow-run idempotency.
@@ -151,6 +152,8 @@ Matching is deliberately explainable:
 - `min_score` controls alert sensitivity.
 
 Alerts are sent only when the monitor creates at least one new matching posting. Re-seeing an existing posting updates its record without sending another immediate alert.
+
+Alert preferences support immediate mode, digest-only mode, quiet hours, timezone selection, and a max-alerts-per-workflow guard. Workflow ownership is stored in metadata, and mutating API calls create `audit.event` result records with action, actor, path, linked workflow/job IDs, and action-specific data.
 
 ## Observability
 

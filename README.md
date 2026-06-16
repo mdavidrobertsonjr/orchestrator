@@ -212,10 +212,18 @@ Job monitor workflows can send immediate alerts when new postings are discovered
 
 ```json
 {
-  "notification_mode": "immediate",
-  "recipients": ["you@example.com"]
+  "notifications": {
+    "mode": "immediate",
+    "recipients": ["you@example.com"],
+    "quiet_hours_start": "22:00",
+    "quiet_hours_end": "07:00",
+    "timezone": "America/New_York",
+    "max_alerts_per_workflow": 5
+  }
 }
 ```
+
+Use `"mode": "digest_only"` to suppress immediate monitor alerts and rely on digest workflows instead.
 
 For a personal deployment, set a default recipient once and omit recipients from individual monitor payloads:
 
@@ -234,6 +242,12 @@ The preferred nested form is:
     "recipients": ["you@example.com"]
   }
 }
+```
+
+Workflow definitions can include ownership metadata. Structured workflow creation accepts either `metadata.owner` or a top-level `owner`; API clients can also send `X-Orchestrator-Owner`. Mutating API actions record durable `audit.event` rows in the results store, queryable with:
+
+```bash
+curl 'http://localhost:8080/v1/results?type=audit.event'
 ```
 
 Daily monitor digests can be scheduled as `report.email` workflows with `kind` set to `monitor_digest`; the report reads recent structured monitor results and emails a summary.

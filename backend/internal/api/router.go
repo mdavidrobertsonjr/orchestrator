@@ -121,6 +121,7 @@ type createWorkflowRequest struct {
 	JobType         string            `json:"job_type"`
 	Payload         map[string]any    `json:"payload"`
 	Metadata        map[string]string `json:"metadata"`
+	Owner           string            `json:"owner"`
 	MaxAttempts     int               `json:"max_attempts"`
 	Enabled         *bool             `json:"enabled"`
 	IntervalSeconds int               `json:"interval_seconds"`
@@ -340,14 +341,26 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "max_attempts cannot be negative")
 		return
 	}
+	req.Metadata = metadataWithOwner(req.Metadata, ownerFromRequest(r))
 
-	s.createAndEnqueueJob(w, r, jobs.CreateJobParams{
+	job := s.createAndEnqueueJob(w, r, jobs.CreateJobParams{
 		Name:        req.Name,
 		Type:        req.Type,
 		Payload:     req.Payload,
 		MaxAttempts: req.MaxAttempts,
 		Metadata:    req.Metadata,
 	})
+	if job != nil {
+		s.recordAuditEvent(r, auditEvent{
+			Action:  "job.created",
+			JobID:   job.ID,
+			Summary: "job created: " + job.Name,
+			Data: map[string]any{
+				"job_type": job.Type,
+				"status":   job.Status,
+			},
+		})
+	}
 }
 
 func (s *Server) handleCreateNaturalJob(w http.ResponseWriter, r *http.Request) {
@@ -433,22 +446,23 @@ func (s *Server) handleCreateNaturalCommand(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusAccepted, naturalCommandResponse{Action: "job", Job: job})
 }
 
-func (s *Server) createAndEnqueueJob(w http.ResponseWriter, r *http.Request, params jobs.CreateJobParams) {
+func (s *Server) createAndEnqueueJob(w http.ResponseWriter, r *http.Request, params jobs.CreateJobParams) *jobs.Job {
 	job, err := s.store.Create(params)
 	if err != nil {
 		s.logger.Error("failed to create job", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to create job")
-		return
+		return nil
 	}
 
 	if err := s.queue.Enqueue(r.Context(), job.ID); err != nil {
 		s.logger.Error("failed to enqueue job", "job_id", job.ID, "error", err)
 		writeError(w, http.StatusServiceUnavailable, "queue is unavailable")
-		return
+		return nil
 	}
 
 	s.logger.Info("job submitted", "job_id", job.ID, "type", job.Type)
 	writeJSON(w, http.StatusAccepted, job)
+	return job
 }
 
 func (s *Server) createAndEnqueuePlannedJob(w http.ResponseWriter, r *http.Request, plan *llm.JobPlan) {
@@ -524,6 +538,14 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markRunStatus(job.ID, string(jobs.StatusCanceled))
+	s.recordAuditEvent(r, auditEvent{
+		Action:  "job.canceled",
+		JobID:   job.ID,
+		Summary: "job canceled: " + job.Name,
+		Data: map[string]any{
+			"status": job.Status,
+		},
+	})
 	writeJSON(w, http.StatusOK, job)
 }
 
@@ -545,6 +567,14 @@ func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.markRunStatus(job.ID, string(jobs.StatusQueued))
+	s.recordAuditEvent(r, auditEvent{
+		Action:  "job.retried",
+		JobID:   job.ID,
+		Summary: "job retried: " + job.Name,
+		Data: map[string]any{
+			"status": job.Status,
+		},
+	})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -840,6 +870,7 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	req.Metadata = metadataWithOwner(req.Metadata, firstNonEmptyString(req.Owner, ownerFromRequest(r)))
 
 	workflow, err := s.workflows.Create(workflows.CreateWorkflowParams{
 		Name:            req.Name,
@@ -858,6 +889,16 @@ func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
+	s.recordAuditEvent(r, auditEvent{
+		Action:     "workflow.created",
+		WorkflowID: workflow.ID,
+		Summary:    "workflow created: " + workflow.Name,
+		Data: map[string]any{
+			"job_type": workflow.JobType,
+			"enabled":  workflow.Enabled,
+			"owner":    workflow.Metadata["owner"],
+		},
+	})
 	writeJSON(w, http.StatusCreated, workflow)
 }
 
@@ -936,6 +977,31 @@ func naturalMetadata(metadata map[string]string) map[string]string {
 	return out
 }
 
+func metadataWithOwner(metadata map[string]string, owner string) map[string]string {
+	out := map[string]string{}
+	for key, value := range metadata {
+		out[key] = value
+	}
+	owner = strings.TrimSpace(owner)
+	if owner != "" && strings.TrimSpace(out["owner"]) == "" {
+		out["owner"] = owner
+	}
+	return out
+}
+
+func ownerFromRequest(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-Orchestrator-Owner"))
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	if s.workflows == nil {
 		writeError(w, http.StatusNotFound, "workflow not found")
@@ -953,6 +1019,15 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.recordAuditEvent(r, auditEvent{
+		Action:     "workflow.updated",
+		WorkflowID: workflow.ID,
+		Summary:    "workflow updated: " + workflow.Name,
+		Data: map[string]any{
+			"enabled": workflow.Enabled,
+			"owner":   workflow.Metadata["owner"],
+		},
+	})
 	writeJSON(w, http.StatusOK, workflow)
 }
 
@@ -1041,6 +1116,16 @@ func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("workflow manually dispatched", "workflow_id", workflow.ID, "job_id", job.ID)
+	s.recordAuditEvent(r, auditEvent{
+		Action:     "workflow.run_requested",
+		WorkflowID: workflow.ID,
+		JobID:      job.ID,
+		Summary:    "workflow run requested: " + workflow.Name,
+		Data: map[string]any{
+			"job_type": workflow.JobType,
+			"owner":    workflow.Metadata["owner"],
+		},
+	})
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -1157,6 +1242,42 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 		"results":    resultsPage,
 		"pagination": pagination,
 	})
+}
+
+type auditEvent struct {
+	Action     string
+	WorkflowID string
+	JobID      string
+	Summary    string
+	Data       map[string]any
+}
+
+func (s *Server) recordAuditEvent(r *http.Request, event auditEvent) {
+	if s.results == nil {
+		return
+	}
+	actor := ownerFromRequest(r)
+	if actor == "" {
+		actor = "api"
+	}
+	data := map[string]any{
+		"action": event.Action,
+		"actor":  actor,
+		"path":   r.URL.Path,
+		"method": r.Method,
+	}
+	for key, value := range event.Data {
+		data[key] = value
+	}
+	if _, err := s.results.Create(results.CreateResultParams{
+		JobID:      event.JobID,
+		WorkflowID: event.WorkflowID,
+		Type:       "audit.event",
+		Summary:    event.Summary,
+		Data:       data,
+	}); err != nil {
+		s.logger.Error("failed to record audit event", "action", event.Action, "error", err)
+	}
 }
 
 func filterJobs(items []*jobs.Job, r *http.Request) []*jobs.Job {
