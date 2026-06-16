@@ -124,6 +124,42 @@ button {
   padding: 28px;
 }
 
+.auth-shell {
+  align-items: center;
+  background: #eef2f6;
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.auth-panel {
+  background: #ffffff;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  box-shadow: 0 16px 36px rgba(23, 32, 42, 0.12);
+  display: grid;
+  gap: 18px;
+  max-width: 380px;
+  padding: 28px;
+  width: min(100%, 380px);
+}
+
+.auth-panel h1 {
+  font-size: 26px;
+}
+
+.auth-panel label {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-panel label span {
+  color: #405060;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .topbar {
   display: flex;
   align-items: center;

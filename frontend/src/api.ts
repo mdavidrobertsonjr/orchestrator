@@ -1,7 +1,33 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const AUTH_STORAGE_KEY = "orchestrator.authToken";
 
 export function eventStreamURL(): string {
-  return `${API_BASE_URL}/v1/events`;
+  const token = getAuthToken();
+  const suffix = token ? `?auth_token=${encodeURIComponent(token)}` : "";
+  return `${API_BASE_URL}/v1/events${suffix}`;
+}
+
+export function getAuthToken(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.localStorage.getItem(AUTH_STORAGE_KEY) ?? "";
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const trimmed = token.trim();
+  if (trimmed === "") {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(AUTH_STORAGE_KEY, trimmed);
+}
+
+export function clearAuthToken(): void {
+  setAuthToken("");
 }
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "dead_letter" | "canceled";
@@ -297,7 +323,16 @@ export function retryJob(id: string): Promise<Job> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const token = getAuthToken();
+  if (token !== "" && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers
+  });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const message = body?.error ?? `request failed with ${response.status}`;

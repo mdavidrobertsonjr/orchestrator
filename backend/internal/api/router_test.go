@@ -105,6 +105,38 @@ func TestReadiness(t *testing.T) {
 	}
 }
 
+func TestAuthTokenProtectsOperationalRoutes(t *testing.T) {
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		AuthToken: "secret-token",
+	})
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	healthRec := httptest.NewRecorder()
+	router.ServeHTTP(healthRec, healthReq)
+	if healthRec.Code != http.StatusOK {
+		t.Fatalf("expected health route to remain public, got %d", healthRec.Code)
+	}
+
+	unauthorizedReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	unauthorizedRec := httptest.NewRecorder()
+	router.ServeHTTP(unauthorizedRec, unauthorizedReq)
+	if unauthorizedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected missing token status %d, got %d", http.StatusUnauthorized, unauthorizedRec.Code)
+	}
+
+	authorizedReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	authorizedReq.Header.Set("Authorization", "Bearer secret-token")
+	authorizedRec := httptest.NewRecorder()
+	router.ServeHTTP(authorizedRec, authorizedReq)
+	if authorizedRec.Code != http.StatusOK {
+		t.Fatalf("expected authorized status %d, got %d with body %s", http.StatusOK, authorizedRec.Code, authorizedRec.Body.String())
+	}
+}
+
 func TestCreateJobValidation(t *testing.T) {
 	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
 

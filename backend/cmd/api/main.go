@@ -123,6 +123,7 @@ func main() {
 		Workflows: workflowStore,
 		Runs:      runStore,
 		Results:   resultStore,
+		AuthToken: cfg.AuthToken,
 	})
 
 	server := &http.Server{
@@ -176,6 +177,7 @@ type config struct {
 	SMTPPassword          string
 	SMTPFrom              string
 	DefaultRecipients     []string
+	AuthToken             string
 }
 
 func configFromEnv() config {
@@ -198,6 +200,7 @@ func configFromEnv() config {
 		SMTPPassword:          os.Getenv("ORCH_SMTP_PASSWORD"),
 		SMTPFrom:              os.Getenv("ORCH_SMTP_FROM"),
 		DefaultRecipients:     envStringList("ORCH_DEFAULT_RECIPIENTS"),
+		AuthToken:             os.Getenv("ORCH_AUTH_TOKEN"),
 	}
 }
 

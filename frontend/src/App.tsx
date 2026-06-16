@@ -6,6 +6,7 @@ import {
   Clock3,
   Cpu,
   ExternalLink,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
   Pause,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   cancelJob,
+  clearAuthToken,
   createJob,
   createNaturalCommand,
   createWorkflow,
@@ -32,6 +34,7 @@ import {
   fetchWorkflowRuns,
   fetchWorkflows,
   fetchWorkers,
+  getAuthToken,
   Job,
   JobStatus,
   Posting,
@@ -40,6 +43,7 @@ import {
   retryJob,
   RuntimeMetrics,
   runWorkflow,
+  setAuthToken,
   updateWorkflow,
   Worker,
   WorkerStatus,
@@ -176,6 +180,8 @@ export function App() {
   const [apiOnline, setApiOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeSection, setActiveSection] = useState<DashboardSection>("overview");
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authInput, setAuthInput] = useState(getAuthToken());
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobID) ?? jobs[0],
@@ -229,7 +235,12 @@ export function App() {
       setError(null);
     } catch (err) {
       setApiOnline(false);
-      setError(err instanceof Error ? err.message : "failed to refresh dashboard");
+      const message = err instanceof Error ? err.message : "failed to refresh dashboard";
+      if (message === "authentication required") {
+        clearAuthToken();
+        setAuthRequired(true);
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -257,6 +268,22 @@ export function App() {
       }
     };
   }, []);
+
+  function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthToken(authInput);
+    setAuthRequired(false);
+    setError(null);
+    void refresh();
+  }
+
+  function handleSignOut() {
+    clearAuthToken();
+    setAuthInput("");
+    setAuthRequired(true);
+    setApiOnline(false);
+    setError(null);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -386,6 +413,10 @@ export function App() {
   }
 
   const queueFill = queue.capacity ? (queue.queued / queue.capacity) * 100 : 0;
+
+  if (authRequired && getAuthToken() === "") {
+    return <AuthScreen value={authInput} onChange={setAuthInput} onSubmit={handleAuthSubmit} />;
+  }
 
   const overviewPanels = (
     <>
@@ -546,6 +577,11 @@ export function App() {
               {apiOnline ? "API online" : "API offline"}
             </span>
             <span className="updated">{lastUpdated ? `Updated ${formatTime(lastUpdated)}` : "Not synced"}</span>
+            {getAuthToken() && (
+              <button className="icon-button" type="button" onClick={handleSignOut} aria-label="Clear auth token" title="Clear auth token">
+                <KeyRound size={18} />
+              </button>
+            )}
             <button className="icon-button" type="button" onClick={() => void refresh()} aria-label="Refresh">
               <RefreshCw size={18} />
             </button>
@@ -557,6 +593,40 @@ export function App() {
         {sectionContent[activeSection]}
       </main>
     </div>
+  );
+}
+
+function AuthScreen({
+  value,
+  onChange,
+  onSubmit
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <main className="auth-shell">
+      <form className="auth-panel" onSubmit={onSubmit}>
+        <div className="brand-mark">
+          <KeyRound size={22} />
+        </div>
+        <h1>Orchestrator</h1>
+        <label>
+          <span>Access token</span>
+          <input
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            autoComplete="current-password"
+            autoFocus
+            type="password"
+          />
+        </label>
+        <button className="primary-button" type="submit" disabled={value.trim() === ""}>
+          Unlock
+        </button>
+      </form>
+    </main>
   );
 }
 

@@ -75,6 +75,16 @@ Stop Postgres when you are done:
 make postgres-stop
 ```
 
+## Authentication
+
+Set `ORCH_AUTH_TOKEN` to require bearer-token authentication for dashboard API calls and operational endpoints under `/v1` and `/metrics`:
+
+```bash
+ORCH_AUTH_TOKEN=replace-with-a-long-random-token make website-postgres
+```
+
+The dashboard prompts for the token when the API returns `401`. API clients can send either `Authorization: Bearer <token>` or `X-Orchestrator-Token: <token>`. Health and readiness checks remain public for deployment probes.
+
 ## Demo Workflow
 
 With the backend running on `:8080`, seed and run a fake new-grad monitor:

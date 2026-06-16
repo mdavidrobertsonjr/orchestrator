@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ type Config struct {
 	Workflows workflows.Store
 	Runs      workflowruns.Store
 	Results   results.Store
+	AuthToken string
 }
 
 type Server struct {
@@ -50,6 +52,7 @@ type Server struct {
 	workflows workflows.Store
 	runs      workflowruns.Store
 	results   results.Store
+	authToken string
 }
 
 func NewRouter(config Config) http.Handler {
@@ -63,6 +66,7 @@ func NewRouter(config Config) http.Handler {
 		workflows: config.Workflows,
 		runs:      config.Runs,
 		results:   config.Results,
+		authToken: strings.TrimSpace(config.AuthToken),
 	}
 
 	mux := http.NewServeMux()
@@ -96,7 +100,7 @@ func NewRouter(config Config) http.Handler {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
 
-	return requestLogger(server.logger, corsMiddleware(mux))
+	return requestLogger(server.logger, corsMiddleware(authMiddleware(server.authToken, mux)))
 }
 
 type createJobRequest struct {
@@ -1164,7 +1168,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Orchestrator-Token")
 		}
 
 		if r.Method == http.MethodOptions {
@@ -1174,6 +1178,50 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func authMiddleware(token string, next http.Handler) http.Handler {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !requiresAuth(r) || authorizedRequest(r, token) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("WWW-Authenticate", `Bearer realm="orchestrator"`)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+	})
+}
+
+func requiresAuth(r *http.Request) bool {
+	path := r.URL.Path
+	return path == "/metrics" || path == "/v1" || strings.HasPrefix(path, "/v1/")
+}
+
+func authorizedRequest(r *http.Request, token string) bool {
+	candidates := []string{
+		bearerToken(r.Header.Get("Authorization")),
+		strings.TrimSpace(r.Header.Get("X-Orchestrator-Token")),
+		strings.TrimSpace(r.URL.Query().Get("auth_token")),
+	}
+	for _, candidate := range candidates {
+		if candidate != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(token)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if len(header) < len("Bearer ") || !strings.EqualFold(header[:len("Bearer ")], "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[len("Bearer "):])
 }
 
 func isAllowedDevOrigin(origin string) bool {
