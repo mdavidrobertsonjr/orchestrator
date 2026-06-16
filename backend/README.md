@@ -187,10 +187,25 @@ Server-sent runtime snapshots:
 curl http://localhost:8080/v1/events
 ```
 
+## Stabilization
+
+Run the normal verification suite:
+
+```bash
+make test
+```
+
+Run Postgres-backed integration checks from the repository root:
+
+```bash
+make smoke-postgres
+```
+
+The integration suite covers startup migrations, SQL-backed pagination, notification delivery state, and scheduler advisory locking.
+
 ## Roadmap
 
 - Real user/session management if the project moves beyond private deployment API keys.
 - Provider-specific notification routing beyond tracked email delivery.
-- Postgres-backed integration tests in CI for migrations, SQL pagination, notification state, and scheduler advisory locking.
 - Optional dedicated queue backend for higher-throughput deployments.
 - Docker sandbox executor for trusted typed jobs that need process isolation.

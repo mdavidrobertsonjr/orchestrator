@@ -19,6 +19,35 @@ jobs:
           cache-dependency-path: backend/go.sum
       - run: go test ./...
 
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: orchestrator
+          POSTGRES_USER: orchestrator
+          POSTGRES_PASSWORD: orchestrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orchestrator -d orchestrator"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: go test -tags=integration ./internal/integration
+        env:
+          ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

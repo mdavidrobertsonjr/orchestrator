@@ -114,6 +114,13 @@ curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" 'http://127.0.0.1:8080/v1/res
 curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" 'http://127.0.0.1:8080/v1/results?type=monitor.source_health&limit=20'
 ```
 
+Before deploying a new revision, run:
+
+```bash
+make test
+make smoke-postgres
+```
+
 Watch logs:
 
 ```bash

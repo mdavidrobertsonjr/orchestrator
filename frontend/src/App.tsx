@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock3,
   Cpu,
+  BellRing,
   ExternalLink,
   KeyRound,
   LayoutDashboard,
@@ -37,6 +38,7 @@ import {
   getAuthToken,
   Job,
   JobStatus,
+  OperationalAlert,
   Posting,
   QueueStatus,
   Result,
@@ -191,6 +193,11 @@ export function App() {
   const selectedJobResults = useMemo(
     () => (selectedJob ? results.filter((result) => result.job_id === selectedJob.id) : []),
     [results, selectedJob]
+  );
+
+  const sourceHealthResults = useMemo(
+    () => results.filter((result) => result.type === "monitor.source_health").slice(0, 6),
+    [results]
   );
 
   const activeNavItem = navItems.find((item) => item.id === activeSection) ?? navItems[0];
@@ -421,6 +428,14 @@ export function App() {
   const overviewPanels = (
     <>
       <SummaryGrid summary={summary} />
+      <section className="dashboard-grid compact-grid">
+        <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
+          <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
+        </Panel>
+        <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
+          <SourceHealthPanel results={sourceHealthResults} loading={loading} onSelectJob={setSelectedJobID} />
+        </Panel>
+      </section>
       <section className="dashboard-grid">
         <Panel title="Recent Jobs" subtitle={`${jobs.length} tracked executions`}>
           <JobsTable
@@ -489,9 +504,14 @@ export function App() {
       </Panel>
     ),
     results: (
-      <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
-        <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
-      </Panel>
+      <section className="split-view">
+        <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+          <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
+        </Panel>
+        <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
+          <SourceHealthPanel results={sourceHealthResults} loading={loading} onSelectJob={setSelectedJobID} />
+        </Panel>
+      </section>
     ),
     workers: (
       <section className="split-view">
@@ -506,6 +526,9 @@ export function App() {
           subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
         >
           <RuntimeMetricsPanel metrics={metrics} loading={loading} />
+        </Panel>
+        <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
+          <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
         </Panel>
       </section>
     ),
@@ -738,6 +761,85 @@ function RuntimeMetricsPanel({ metrics, loading }: { metrics: RuntimeMetrics | n
         <span>Total attempts</span>
         <strong>{metrics.jobs.attempts}</strong>
       </div>
+      <div className={`metric-row ${(metrics.notifications?.failed ?? 0) > 0 ? "warning" : ""}`}>
+        <span>Notification failures</span>
+        <strong>{metrics.notifications?.failed ?? 0}</strong>
+      </div>
+    </div>
+  );
+}
+
+function OperationalAlertsPanel({ alerts, loading }: { alerts: OperationalAlert[]; loading: boolean }) {
+  if (loading) {
+    return <EmptyState label="Loading alerts" />;
+  }
+  if (alerts.length === 0) {
+    return (
+      <div className="signal-list">
+        <div className="signal-row ok">
+          <CheckCircle2 size={17} />
+          <div>
+            <strong>No active alerts</strong>
+            <span>Runtime metrics are inside configured thresholds</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="signal-list">
+      {alerts.map((alert) => (
+        <div className={`signal-row ${alert.severity}`} key={`${alert.name}-${alert.severity}`}>
+          <BellRing size={17} />
+          <div>
+            <strong>{formatAlertName(alert.name)}</strong>
+            <span>{alert.message}</span>
+          </div>
+          <b>{alert.value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SourceHealthPanel({
+  results,
+  loading,
+  onSelectJob
+}: {
+  results: Result[];
+  loading: boolean;
+  onSelectJob: (id: string) => void;
+}) {
+  if (loading) {
+    return <EmptyState label="Loading source health" />;
+  }
+  if (results.length === 0) {
+    return <EmptyState label="No source failures recorded" />;
+  }
+
+  return (
+    <div className="signal-list">
+      {results.map((result) => (
+        <div className="source-health-row" key={result.id}>
+          <div>
+            <strong>{String(result.data?.status ?? "source event")}</strong>
+            <span>{result.summary || result.id.slice(0, 12)}</span>
+            {Array.isArray(result.data?.sources) && result.data.sources.length > 0 && (
+              <small>{result.data.sources.map(String).join(", ")}</small>
+            )}
+          </div>
+          <div className="source-health-actions">
+            <span>{relativeTime(result.created_at)}</span>
+            {result.job_id && (
+              <button className="link-button" type="button" onClick={() => onSelectJob(result.job_id as string)}>
+                Job
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1398,6 +1500,14 @@ function EmptyState({ label }: { label: string }) {
 
 function hasAlertFlag(result: Result) {
   return typeof result.data?.alert_sent === "boolean";
+}
+
+function formatAlertName(name: string) {
+  return name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function relativeTime(value: string) {

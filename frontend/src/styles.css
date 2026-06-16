@@ -347,6 +347,11 @@ h2 {
   align-items: start;
 }
 
+.compact-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr);
+  margin-bottom: 18px;
+}
+
 .split-view {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
@@ -710,6 +715,83 @@ textarea {
 .metric-row.attention span,
 .metric-row.attention strong {
   color: #7a5200;
+}
+
+.signal-list {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.signal-row,
+.source-health-row {
+  align-items: center;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  min-height: 56px;
+  padding: 12px;
+}
+
+.signal-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.signal-row.ok {
+  background: #f0fbf5;
+  border-color: #b8e2cb;
+  color: #116c49;
+}
+
+.signal-row.warning {
+  background: #fff9e8;
+  border-color: #efd17a;
+  color: #7a5200;
+}
+
+.signal-row.critical {
+  background: #fff4f4;
+  border-color: #e5a7a7;
+  color: #9f1f18;
+}
+
+.signal-row strong,
+.signal-row span,
+.source-health-row strong,
+.source-health-row span,
+.source-health-row small {
+  display: block;
+}
+
+.signal-row span,
+.source-health-row span,
+.source-health-row small {
+  color: #607080;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.signal-row b {
+  font-size: 20px;
+}
+
+.source-health-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.source-health-row strong {
+  text-transform: capitalize;
+}
+
+.source-health-row small {
+  overflow-wrap: anywhere;
+}
+
+.source-health-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
 }
 
 .job-detail {

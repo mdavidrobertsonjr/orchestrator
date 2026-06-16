@@ -285,3 +285,13 @@ Current hardening areas:
 - Add migration review and release gates before applying schema changes automatically in production.
 - Add source-health dashboards from `monitor.source_health` results and operational alert metrics.
 - Add integration tests against a real Postgres service in CI for migrations, SQL pagination, notification delivery state, and scheduler locking.
+
+## Stabilization Status
+
+Stabilization coverage now includes:
+
+- Unit tests for normal in-memory and API behavior.
+- Postgres integration tests behind the `integration` build tag.
+- `make smoke-postgres` for local Postgres migration, pagination, notification, and advisory-lock checks.
+- CI jobs for backend tests, Postgres integration tests, frontend build, and Docker image builds.
+- Dashboard visibility for operational alerts and monitor source-health failures.

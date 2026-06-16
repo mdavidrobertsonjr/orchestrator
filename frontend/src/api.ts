@@ -105,6 +105,18 @@ export type RuntimeMetrics = {
   results: {
     total: number;
   };
+  notifications?: {
+    total: number;
+    failed?: number;
+  };
+  alerts?: OperationalAlert[];
+};
+
+export type OperationalAlert = {
+  severity: "warning" | "critical" | string;
+  name: string;
+  message: string;
+  value: number;
 };
 
 export type Posting = {

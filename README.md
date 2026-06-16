@@ -63,6 +63,12 @@ Run a distributed smoke test that starts Postgres, runs the API without embedded
 make smoke-distributed
 ```
 
+Run Postgres integration tests for migrations, SQL pagination, notification delivery state, and scheduler advisory locking:
+
+```bash
+make smoke-postgres
+```
+
 Run the containerized API, worker, and Postgres deployment shape:
 
 ```bash
@@ -102,6 +108,8 @@ Postgres mode uses versioned startup migrations recorded in `schema_migrations`.
 High-volume collection endpoints use server-side SQL filtering and pagination in Postgres mode for jobs, postings, workflow runs, and results. Notification sends create durable `notification_deliveries` records, and monitor source failures create `monitor.source_health` results for outage or response-shape drift investigation.
 
 Metrics include operational alert signals for dead-letter jobs, expired leases, scheduler lag, and failed notification deliveries. Prometheus exports these as `orchestrator_operational_alert{name=...,severity=...}`.
+
+The dashboard overview surfaces active operational alerts and recent monitor source-health failures so production issues are visible without manually querying result records.
 
 ## Demo Workflow
 
