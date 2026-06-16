@@ -8,7 +8,7 @@ endif
 POSTGRES_URL := postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 BACKEND_ENV := GOCACHE=/tmp/go-build-cache ORCH_ADDR=:8080 ORCH_WORKERS=2
 
-.PHONY: dev dev-postgres dev-distributed smoke-distributed compose-app compose-app-stop website website-postgres frontend backend worker postgres postgres-stop demo test
+.PHONY: dev dev-postgres dev-distributed smoke-distributed compose-app compose-app-stop website website-postgres frontend backend worker postgres postgres-stop demo seed-job-monitors test
 
 dev:
 	(cd backend && env $(BACKEND_ENV) go run ./cmd/api) & \
@@ -64,6 +64,9 @@ postgres-stop:
 
 demo:
 	bash scripts/demo.sh
+
+seed-job-monitors:
+	bash scripts/seed_job_monitors.sh
 
 test:
 	cd backend && env GOCACHE=/tmp/go-build-cache go test ./...

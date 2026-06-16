@@ -85,6 +85,41 @@ make demo
 
 The demo creates a workflow, triggers `Run now`, stores a normalized posting, records a workflow run, writes a monitor result, and logs a simulated alert. It is designed to show the core system without depending on live job-board data.
 
+## Seed Real Job Monitors
+
+With the backend running on `:8080`, seed recurring monitors for Anduril, Palantir, Stripe, and several high-signal late-stage startups:
+
+```bash
+make seed-job-monitors
+```
+
+The seed script creates hourly `jobs.monitor.new_grad` workflows using the public ATS APIs currently supported by the monitor runner:
+
+- Anduril: Greenhouse board token `andurilindustries`
+- Palantir: Lever account name `palantir`
+- Stripe: Greenhouse board token `stripe`
+- OpenAI: Ashby job board name `openai`
+- Anthropic: Greenhouse board token `anthropic`
+- Databricks: Greenhouse board token `databricks`
+- Ramp: Ashby job board name `ramp`
+- Figma: Greenhouse board token `figma`
+- Plaid: Ashby job board name `plaid`
+- Perplexity: Ashby job board name `perplexity`
+- Scale AI: Greenhouse board token `scaleai`
+- Cursor: Ashby job board name `cursor`
+- xAI: Greenhouse board token `xai`
+- Vercel: Greenhouse board token `vercel`
+- Linear: Ashby job board name `linear`
+- Replit: Ashby job board name `replit`
+- Modal: Ashby job board name `modal`
+- Baseten: Ashby job board name `baseten`
+
+Override the target API or schedule interval when needed:
+
+```bash
+ORCH_MONITOR_URL=http://localhost:8080 ORCH_MONITOR_INTERVAL_SECONDS=86400 make seed-job-monitors
+```
+
 ## System Design
 
 The project is organized around production orchestration concerns:
@@ -96,6 +131,8 @@ The project is organized around production orchestration concerns:
 - **Workflow audit trail:** workflow definitions are separate from workflow runs; runs track trigger type, scheduled timestamp, idempotency key, linked job, and reconciled execution status.
 - **Persistence boundary:** in-memory stores support fast local development, while Postgres stores persist jobs, logs, workflows, workflow runs, postings, and results.
 - **Observability:** the dashboard shows queue depth, runtime metrics, workers, job logs, workflow run history, posting matches, structured results, and alert status. The API also exposes Prometheus-compatible metrics at `/metrics` and live runtime snapshots at `/v1/events`.
+
+For interview prep and architecture review, see [System Design](docs/system-design.md).
 
 ## English Job Requests
 

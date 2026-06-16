@@ -1,0 +1,280 @@
+# System Design
+
+This project is a concrete distributed job orchestrator with job-posting monitoring as the flagship workflow. Use this guide to explain the design in an interview without hand-waving past the hard parts.
+
+## Product Framing
+
+The system lets a user define recurring or one-off work, execute it through workers, persist execution history, and alert on useful results. The primary workflow is monitoring company job boards for new-grad SWE roles and notifying the user when new matching postings appear.
+
+Core user flows:
+
+- Create a recurring monitor workflow from structured JSON or natural language.
+- Run the workflow now or wait for the scheduler to dispatch it.
+- Fetch external job-board feeds, normalize postings, score matches, and dedupe results.
+- Send an immediate alert only when new matching postings are discovered.
+- Inspect jobs, runs, postings, results, workers, queue state, logs, and metrics from the dashboard or API.
+
+## Requirements
+
+Functional requirements:
+
+- Submit immediate jobs and recurring workflows.
+- Persist jobs, workflow definitions, workflow runs, postings, results, logs, and worker state.
+- Support multiple worker processes against a shared durable queue.
+- Retry transient failures and preserve terminal failure state.
+- Deduplicate scheduled dispatches and discovered postings.
+- Expose operational status through health checks, readiness checks, metrics, and dashboard views.
+
+Non-functional requirements:
+
+- At-least-once execution with idempotent job handlers where side effects matter.
+- Horizontal worker scaling.
+- Restart-safe scheduling and execution state.
+- Bounded queue pressure in local mode, durable store-backed queue in Postgres mode.
+- Clear audit history for each scheduled workflow run.
+- Observable failure modes for stuck workers, expired leases, retries, and dead-lettered jobs.
+
+## Architecture
+
+```text
+Dashboard / API clients
+        |
+        v
+Go HTTP control plane
+        |
+        +--> Jobs store and queue
+        +--> Workflow definitions
+        +--> Workflow run audit records
+        +--> Posting/result stores
+        +--> Worker registry
+        |
+        v
+Scheduler loop creates due jobs
+        |
+        v
+Worker pool claims jobs with leases
+        |
+        v
+Typed executors fetch sources, store results, send alerts
+```
+
+Important implementation boundaries:
+
+- `backend/internal/api`: public HTTP routes and JSON contracts.
+- `backend/internal/jobs`: job state machine, logs, queue abstraction, lease recovery.
+- `backend/internal/scheduler`: recurring workflow dispatch with idempotency keys.
+- `backend/internal/worker`: worker pool and typed job execution.
+- `backend/internal/monitor`: Greenhouse, Lever, Ashby, and fake monitor sources.
+- `backend/internal/postings`: normalized posting store with dedupe.
+- `backend/internal/results`: structured execution outputs.
+- `backend/internal/workflows` and `backend/internal/workflowruns`: scheduled workflow definitions and run history.
+
+## API Surface
+
+Representative endpoints:
+
+- `POST /v1/jobs`: submit one immediate job.
+- `GET /v1/jobs`, `GET /v1/jobs/{id}`: inspect executions and logs.
+- `POST /v1/jobs/{id}/cancel`: cancel queued work.
+- `POST /v1/jobs/{id}/retry`: retry terminal jobs.
+- `POST /v1/workflows`: create a recurring workflow.
+- `POST /v1/workflows/{id}/run`: manually trigger a workflow.
+- `GET /v1/workflow-runs`: inspect scheduled/manual workflow executions.
+- `GET /v1/postings`: view matched job postings.
+- `GET /v1/results`: view structured job outputs.
+- `GET /v1/workers`: inspect worker liveness and current jobs.
+- `GET /v1/metrics` and `GET /metrics`: JSON and Prometheus-compatible metrics.
+- `GET /healthz` and `GET /readyz`: process and dependency health.
+
+## Data Model
+
+Key entities:
+
+- `jobs`: execution unit with type, payload, status, attempts, lease owner, lease deadline, timestamps, metadata.
+- `job_logs`: append-only execution messages tied to a job.
+- `workflows`: recurring definitions with job type, payload, interval, enabled state, and next run timestamp.
+- `workflow_runs`: audit record for every workflow dispatch, including trigger, job ID, scheduled timestamp, and idempotency key.
+- `postings`: normalized external job postings with source identity, dedupe key, match score, and first/last seen timestamps.
+- `results`: structured outputs such as monitor summaries and HTTP response summaries.
+- `workers`: worker heartbeat, status, and current job.
+
+Indexes support common access paths: status lookup, created-time sorting, due workflows, workflow/job run lookup, posting source/time lookup, and unique workflow-run idempotency.
+
+## Queue Semantics
+
+The system supports two queue modes:
+
+- In-memory queue for fast throwaway local development.
+- Store-backed queue in Postgres mode so API and worker processes share durable state.
+
+Execution semantics are at least once:
+
+- A worker claims a queued job and marks it running with a lease.
+- Successful jobs transition to `succeeded`.
+- Failed jobs retry until `max_attempts`, then move to `dead_letter`.
+- If a worker dies, the lease reclaimer finds expired running jobs and either requeues or dead-letters them.
+
+This is the right default for an orchestrator because exactly-once execution is not realistic across process crashes and external side effects. Instead, handlers should be idempotent. The job monitor does this by deduping postings before alerting.
+
+## Scheduler Semantics
+
+Recurring workflow definitions are not jobs. The scheduler periodically checks enabled workflows whose `next_run_at` is due and creates a normal queued job.
+
+Reliability properties:
+
+- Workflow definitions persist across process restarts.
+- A scheduled run records `scheduled_for`, `trigger`, `job_id`, and status.
+- Dispatch idempotency uses `workflow_id + scheduled_for`, preventing duplicate run records for the same scheduled time.
+- Manual `Run now` uses the same worker execution path as scheduled runs.
+
+## Job Monitor Design
+
+Monitor jobs fetch public ATS feeds and normalize them into candidate postings.
+
+Supported sources:
+
+- Greenhouse: `board_token`
+- Lever: `account_name`
+- Ashby: `job_board_name`
+- Fake source for deterministic demos and tests
+
+Matching is deliberately explainable:
+
+- Company match adds score.
+- Keyword match adds score.
+- Location match adds score.
+- Excluded keywords reject a candidate.
+- `min_score` controls alert sensitivity.
+
+Alerts are sent only when the monitor creates at least one new matching posting. Re-seeing an existing posting updates its record without sending another immediate alert.
+
+## Observability
+
+Dashboard and API observability cover:
+
+- Queue depth, capacity, and utilization.
+- Jobs by status, attempts, retry attempts, leases, and expired leases.
+- Worker count, active workers, running workers, heartbeat age, and current job.
+- Workflow totals, enabled workflows, due workflows, and run counts.
+- Posting and result counts.
+- Per-job logs and structured result records.
+- Prometheus-compatible metrics for external dashboards.
+
+In an interview, call out what each signal answers:
+
+- Queue depth answers "are we falling behind?"
+- Leased and expired leases answer "are workers stuck or crashing?"
+- Dead letters answer "which jobs need operator or code intervention?"
+- Workflow due count answers "is scheduling blocked?"
+- Posting/result totals answer "is the product workflow producing useful output?"
+
+## Scaling Strategy
+
+Start simple:
+
+- One API process with embedded workers.
+- Postgres for durable state.
+- Dashboard served by the API or Vite in development.
+
+Scale execution:
+
+- Disable embedded workers with `ORCH_EMBEDDED_WORKERS=false`.
+- Run multiple `cmd/worker` processes against the same Postgres database.
+- Increase `ORCH_WORKERS` per worker process for more concurrency.
+
+Scale the queue:
+
+- Postgres-backed claiming is sufficient for low-to-moderate volume and strong simplicity.
+- For higher throughput, introduce Redis, SQS, or Kafka behind the existing queue interface.
+- Preserve the job state machine in Postgres as the source of truth for auditability.
+
+Scale reads:
+
+- Add pagination and filters to list endpoints.
+- Add compound indexes for dashboard queries.
+- Move high-cardinality logs or metrics to purpose-built stores if needed.
+
+Scale external fetching:
+
+- Add per-source rate limits and backoff.
+- Partition workflows by company/source.
+- Cache source fetches if many workflows overlap.
+- Add source-specific adapters for Workday and custom career pages.
+
+## Failure Modes And Mitigations
+
+- API restarts: workflows and jobs persist in Postgres; scheduler resumes on startup.
+- Worker crash mid-job: lease expires; reclaimer requeues or dead-letters based on retry budget.
+- Duplicate scheduler tick: idempotency key prevents duplicate scheduled run records.
+- External ATS outage: job fails and retries; terminal failure is visible in logs and dead-letter status.
+- Email provider outage: alert send failure fails the job, allowing retry.
+- Duplicate posting from source: posting dedupe prevents repeat immediate alerts.
+- Bad payload: validation and typed executor errors surface in job status/logs.
+
+## Security And Safety
+
+Current safety boundaries:
+
+- Structured job payloads instead of arbitrary code execution for the monitor workflow.
+- SMTP credentials and API keys come from environment variables.
+- Health/readiness endpoints avoid exposing secrets.
+- Static job source adapters reduce scraping risk compared with arbitrary browser automation.
+
+Future hardening:
+
+- Authentication and authorization for API/dashboard access.
+- Secret storage through a provider instead of local `.env`.
+- Per-job timeout and cancellation policies by type.
+- Egress allowlists for HTTP request jobs.
+- Audit log for operator actions like cancel, retry, enable, and disable.
+
+## Tradeoffs
+
+Postgres queue vs dedicated queue:
+
+- Postgres keeps the MVP simpler and strongly auditable.
+- Dedicated queues improve throughput, delayed delivery, fanout, and operational separation.
+- The existing queue interface gives a clean migration path.
+
+Polling scheduler vs event-driven scheduler:
+
+- Polling is simple, restart-safe, and adequate for minute-level workflows.
+- A distributed scheduler with leader election is better for high scale or sub-second precision.
+- Idempotent dispatch makes polling safe enough for this product.
+
+At-least-once vs exactly-once:
+
+- At-least-once is realistic and recoverable.
+- Exactly-once is usually an illusion once external APIs and emails are involved.
+- Idempotent writes and dedupe keys provide the user-visible behavior needed here.
+
+Simple scoring vs ML ranking:
+
+- Rule scoring is explainable and easy to tune.
+- ML ranking can improve recall, but creates more data, feedback, and evaluation requirements.
+- For new-grad job alerts, simple matching is the right first version.
+
+## Interview Narrative
+
+Use this sequence when presenting the project:
+
+1. Define the product: recurring job monitor plus general-purpose orchestrator.
+2. State requirements: durable scheduling, at-least-once workers, retries, dedupe, alerting, observability.
+3. Draw the architecture: API, stores, scheduler, queue, workers, typed executors.
+4. Walk one workflow: create monitor, scheduler dispatches job, worker claims with lease, monitor fetches ATS, postings dedupe, result recorded, email sent.
+5. Discuss failures: worker crash, duplicate tick, external outage, email outage, restart.
+6. Discuss scaling: separate workers, queue backend migration, source partitioning, pagination/indexes.
+7. Discuss tradeoffs: Postgres queue, polling scheduler, at-least-once execution, simple scoring.
+8. Close with roadmap: auth, rate limiting, pagination, Workday/custom source adapters, stronger alerting rules, production deployment.
+
+## Next Engineering Improvements
+
+Highest-value improvements before presenting this as a mature system:
+
+- Add authentication for the dashboard and API.
+- Add pagination and query filters for jobs, postings, workflow runs, and results.
+- Add per-source monitor rate limiting and exponential backoff.
+- Add Workday and custom careers-page adapters.
+- Add alert preferences such as quiet hours, digest-only, and max alerts per workflow.
+- Add workflow ownership and audit events.
+- Add deploy documentation for a small VPS or cloud service.
