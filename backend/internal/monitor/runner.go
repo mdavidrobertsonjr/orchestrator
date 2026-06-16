@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,9 +30,19 @@ type SourceConfig struct {
 	Type         string      `json:"type"`
 	Name         string      `json:"name"`
 	Company      string      `json:"company"`
+	URL          string      `json:"url"`
+	APIURL       string      `json:"api_url"`
+	CareersURL   string      `json:"careers_url"`
 	BoardToken   string      `json:"board_token"`
 	AccountName  string      `json:"account_name"`
 	JobBoardName string      `json:"job_board_name"`
+	Tenant       string      `json:"tenant"`
+	Site         string      `json:"site"`
+	SearchText   string      `json:"search_text"`
+	Limit        int         `json:"limit"`
+	RateLimitMS  int         `json:"rate_limit_ms"`
+	MaxRetries   int         `json:"max_retries"`
+	BackoffMS    int         `json:"backoff_ms"`
 	Postings     []Candidate `json:"postings"`
 }
 
@@ -86,6 +97,12 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	if _, ok := sources["ashby"]; !ok {
 		sources["ashby"] = NewAshbySource(nil)
 	}
+	if _, ok := sources["workday"]; !ok {
+		sources["workday"] = NewWorkdaySource(nil)
+	}
+	if _, ok := sources["custom"]; !ok {
+		sources["custom"] = NewCustomSource(nil)
+	}
 	return &Runner{store: store, sources: sources}
 }
 
@@ -115,6 +132,9 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		source, ok := r.sources[sourceType]
 		if !ok {
 			return nil, fmt.Errorf("unsupported monitor source type %q", sourceType)
+		}
+		if err := applySourceRateLimit(ctx, sourceConfig); err != nil {
+			return nil, err
 		}
 
 		candidates, err := source.Fetch(ctx, sourceConfig)
@@ -243,6 +263,65 @@ func log(logf func(string), message string) {
 	}
 }
 
+func applySourceRateLimit(ctx context.Context, config SourceConfig) error {
+	if config.RateLimitMS <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(time.Duration(config.RateLimitMS) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func doRequestWithRetries(ctx context.Context, newRequest func() (*http.Request, error), client *http.Client, config SourceConfig) (*http.Response, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	maxRetries := config.MaxRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	backoff := time.Duration(config.BackoffMS) * time.Millisecond
+	if backoff <= 0 {
+		backoff = 250 * time.Millisecond
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := newRequest()
+		if err != nil {
+			return nil, err
+		}
+		resp, err := client.Do(req)
+		if err == nil && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			return resp, nil
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("returned status %d", resp.StatusCode)
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if attempt == maxRetries {
+			break
+		}
+		delay := backoff * time.Duration(1<<attempt)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
 type FakeSource struct{}
 
 func (FakeSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
@@ -290,12 +369,9 @@ func (s *GreenhouseSource) Fetch(ctx context.Context, config SourceConfig) ([]Ca
 	query.Set("content", "true")
 	parsed.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.client.Do(req)
+	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	}, s.client, config)
 	if err != nil {
 		return nil, err
 	}
@@ -412,12 +488,9 @@ func (s *LeverSource) Fetch(ctx context.Context, config SourceConfig) ([]Candida
 	query.Set("mode", "json")
 	parsed.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.client.Do(req)
+	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	}, s.client, config)
 	if err != nil {
 		return nil, err
 	}
@@ -522,12 +595,9 @@ func (s *AshbySource) Fetch(ctx context.Context, config SourceConfig) ([]Candida
 	query.Set("includeCompensation", "true")
 	parsed.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.client.Do(req)
+	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	}, s.client, config)
 	if err != nil {
 		return nil, err
 	}
@@ -627,4 +697,260 @@ func ashbyPublishedAt(raw string) *time.Time {
 	}
 	publishedAt = publishedAt.UTC()
 	return &publishedAt
+}
+
+type WorkdaySource struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewWorkdaySource(client *http.Client) *WorkdaySource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &WorkdaySource{client: client, baseURL: "https://%s.wd5.myworkdayjobs.com"}
+}
+
+func (s *WorkdaySource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	endpoint, careersBase, err := s.workdayEndpoint(config)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := config.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	requestBody := map[string]any{
+		"appliedFacets": map[string]any{},
+		"limit":         limit,
+		"offset":        0,
+		"searchText":    strings.TrimSpace(config.SearchText),
+	}
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	}, s.client, config)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("workday returned status %d", resp.StatusCode)
+	}
+
+	var response workdayJobsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, len(response.JobPostings))
+	for _, posting := range response.JobPostings {
+		id := firstNonEmpty(posting.ExternalPath, firstString(posting.BulletFields), posting.Title)
+		metadata := map[string]string{
+			"tenant": strings.TrimSpace(config.Tenant),
+			"site":   strings.TrimSpace(config.Site),
+		}
+		if posting.PostedOn != "" {
+			metadata["posted_on"] = posting.PostedOn
+		}
+		if len(posting.BulletFields) > 0 {
+			metadata["bullet_fields"] = strings.Join(posting.BulletFields, " | ")
+		}
+
+		candidates = append(candidates, Candidate{
+			Company:  firstNonEmpty(config.Company, config.Name, config.Tenant),
+			Title:    posting.Title,
+			URL:      workdayPostingURL(careersBase, posting.ExternalPath),
+			Location: firstNonEmpty(posting.LocationsText, strings.Join(posting.Locations, ", ")),
+			Source:   "workday",
+			SourceID: id,
+			PostedAt: parseFlexibleTime(posting.PostedOn),
+			Metadata: metadata,
+		})
+	}
+	return candidates, nil
+}
+
+func firstString(values []string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func (s *WorkdaySource) workdayEndpoint(config SourceConfig) (string, string, error) {
+	if strings.TrimSpace(config.APIURL) != "" {
+		apiURL := strings.TrimSpace(config.APIURL)
+		careersBase := strings.TrimSpace(config.CareersURL)
+		if careersBase == "" {
+			parsed, err := url.Parse(apiURL)
+			if err == nil {
+				careersBase = parsed.Scheme + "://" + parsed.Host
+			}
+		}
+		return apiURL, careersBase, nil
+	}
+
+	tenant := strings.TrimSpace(config.Tenant)
+	site := strings.TrimSpace(config.Site)
+	if tenant == "" || site == "" {
+		return "", "", errors.New("workday source requires api_url or tenant and site")
+	}
+	host := fmt.Sprintf(s.baseURL, tenant)
+	endpoint, err := url.JoinPath(host, "wday", "cxs", tenant, site, "jobs")
+	if err != nil {
+		return "", "", err
+	}
+	return endpoint, firstNonEmpty(config.CareersURL, host), nil
+}
+
+func workdayPostingURL(base string, externalPath string) string {
+	externalPath = strings.TrimSpace(externalPath)
+	if externalPath == "" {
+		return strings.TrimSpace(base)
+	}
+	if parsed, err := url.Parse(externalPath); err == nil && parsed.IsAbs() {
+		return externalPath
+	}
+	joined, err := url.JoinPath(strings.TrimRight(base, "/"), externalPath)
+	if err != nil {
+		return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(externalPath, "/")
+	}
+	return joined
+}
+
+type workdayJobsResponse struct {
+	JobPostings []workdayPosting `json:"jobPostings"`
+}
+
+type workdayPosting struct {
+	Title         string   `json:"title"`
+	ExternalPath  string   `json:"externalPath"`
+	LocationsText string   `json:"locationsText"`
+	Locations     []string `json:"locations"`
+	PostedOn      string   `json:"postedOn"`
+	BulletFields  []string `json:"bulletFields"`
+}
+
+type CustomSource struct {
+	client *http.Client
+}
+
+func NewCustomSource(client *http.Client) *CustomSource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &CustomSource{client: client}
+}
+
+func (s *CustomSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	sourceURL := strings.TrimSpace(firstNonEmpty(config.URL, config.APIURL))
+	if sourceURL == "" {
+		return nil, errors.New("custom source requires url")
+	}
+
+	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	}, s.client, config)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("custom source returned status %d", resp.StatusCode)
+	}
+
+	postings, err := decodeCustomPostings(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, len(postings))
+	for _, posting := range postings {
+		candidates = append(candidates, Candidate{
+			Company:  firstNonEmpty(posting.Company, config.Company, config.Name),
+			Title:    firstNonEmpty(posting.Title, posting.Name),
+			URL:      firstNonEmpty(posting.URL, posting.AbsoluteURL),
+			Location: firstNonEmpty(posting.Location, strings.Join(posting.Locations, ", ")),
+			Source:   "custom",
+			SourceID: firstNonEmpty(posting.SourceID, posting.ID, posting.URL, posting.AbsoluteURL),
+			PostedAt: parseFlexibleTime(firstNonEmpty(posting.PostedAt, posting.Date)),
+			Metadata: map[string]string{
+				"url": sourceURL,
+			},
+		})
+	}
+	return candidates, nil
+}
+
+func decodeCustomPostings(resp *http.Response) ([]customPosting, error) {
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	var direct []customPosting
+	if err := json.Unmarshal(raw, &direct); err == nil && direct != nil {
+		return direct, nil
+	}
+
+	var wrapped struct {
+		Jobs     []customPosting `json:"jobs"`
+		Postings []customPosting `json:"postings"`
+		Results  []customPosting `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, err
+	}
+	return append(append(wrapped.Jobs, wrapped.Postings...), wrapped.Results...), nil
+}
+
+type customPosting struct {
+	ID          string   `json:"id"`
+	SourceID    string   `json:"source_id"`
+	Company     string   `json:"company"`
+	Title       string   `json:"title"`
+	Name        string   `json:"name"`
+	URL         string   `json:"url"`
+	AbsoluteURL string   `json:"absolute_url"`
+	Location    string   `json:"location"`
+	Locations   []string `json:"locations"`
+	PostedAt    string   `json:"posted_at"`
+	Date        string   `json:"date"`
+}
+
+func parseFlexibleTime(raw string) *time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02",
+		"Jan 2, 2006",
+		"January 2, 2006",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, raw)
+		if err == nil {
+			parsed = parsed.UTC()
+			return &parsed
+		}
+	}
+	return nil
 }

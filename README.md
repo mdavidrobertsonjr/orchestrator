@@ -130,6 +130,21 @@ Override the target API or schedule interval when needed:
 ORCH_MONITOR_URL=http://localhost:8080 ORCH_MONITOR_INTERVAL_SECONDS=86400 make seed-job-monitors
 ```
 
+Monitor sources support optional resiliency controls:
+
+```json
+{
+  "rate_limit_ms": 500,
+  "max_retries": 2,
+  "backoff_ms": 250
+}
+```
+
+Additional source types are available for companies outside Greenhouse, Lever, and Ashby:
+
+- Workday: `{ "type": "workday", "tenant": "company", "site": "External", "careers_url": "https://company.wd5.myworkdayjobs.com" }`
+- Custom JSON feeds: `{ "type": "custom", "url": "https://example.com/jobs.json" }`
+
 ## System Design
 
 The project is organized around production orchestration concerns:

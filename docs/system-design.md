@@ -136,7 +136,11 @@ Supported sources:
 - Greenhouse: `board_token`
 - Lever: `account_name`
 - Ashby: `job_board_name`
+- Workday: `tenant` and `site`, or a direct `api_url`
+- Custom JSON careers feeds: `url`
 - Fake source for deterministic demos and tests
+
+Per-source fetch settings support polite monitoring and outage recovery: `rate_limit_ms`, `max_retries`, and `backoff_ms`.
 
 Matching is deliberately explainable:
 
