@@ -87,6 +87,22 @@ ORCH_AUTH_TOKEN=replace-with-a-long-random-token make website-postgres
 
 The dashboard prompts for the token when the API returns `401`. API clients can send either `Authorization: Bearer <token>` or `X-Orchestrator-Token: <token>`. Health and readiness checks remain public for deployment probes.
 
+For scoped API keys, set `ORCH_API_KEYS` as semicolon-separated entries:
+
+```bash
+ORCH_API_KEYS='dashboard:long-random-token:read+write+metrics;prometheus:metrics-token:metrics'
+```
+
+Supported scopes are `read`, `write`, `metrics`, and `admin`. `ORCH_AUTH_TOKEN` remains supported and is treated as an admin key.
+
+## Production Hardening
+
+Postgres mode uses versioned startup migrations recorded in `schema_migrations`. The scheduler also uses a Postgres advisory lock, so multiple API processes can run without each process dispatching the same due workflow.
+
+High-volume collection endpoints use server-side SQL filtering and pagination in Postgres mode for jobs, postings, workflow runs, and results. Notification sends create durable `notification_deliveries` records, and monitor source failures create `monitor.source_health` results for outage or response-shape drift investigation.
+
+Metrics include operational alert signals for dead-letter jobs, expired leases, scheduler lag, and failed notification deliveries. Prometheus exports these as `orchestrator_operational_alert{name=...,severity=...}`.
+
 ## Demo Workflow
 
 With the backend running on `:8080`, seed and run a fake new-grad monitor:
@@ -163,7 +179,7 @@ For interview prep and architecture review, see [System Design](docs/system-desi
 
 ## List Filters And Pagination
 
-Collection endpoints keep their original response arrays and also include `pagination` metadata when queried. Use `limit` and `offset`, or `page_size` and `page`, to page results.
+Collection endpoints keep their original response arrays and also include `pagination` metadata when queried. Use `limit` and `offset`, or `page_size` and `page`, to page results. In Postgres mode, filters and pagination are pushed into SQL for high-volume collections.
 
 Supported filters:
 

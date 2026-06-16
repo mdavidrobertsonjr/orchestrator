@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"orchestrator/backend/internal/database"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -32,7 +34,10 @@ func (r *PostgresRegistry) Close() error {
 }
 
 func (r *PostgresRegistry) Migrate(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, r.db, "workers", []database.Migration{{
+		Version: 1,
+		Name:    "create_workers",
+		SQL: `
 CREATE TABLE IF NOT EXISTS workers (
 	id text PRIMARY KEY,
 	status text NOT NULL,
@@ -44,8 +49,8 @@ CREATE TABLE IF NOT EXISTS workers (
 
 CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status);
 CREATE INDEX IF NOT EXISTS workers_updated_at_idx ON workers (updated_at DESC);
-`)
-	return err
+`,
+	}})
 }
 
 func (r *PostgresRegistry) Register(id string) (*Worker, error) {

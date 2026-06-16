@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+
+	"orchestrator/backend/internal/database"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -35,7 +38,10 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, s.db, "jobs", []database.Migration{{
+		Version: 1,
+		Name:    "create_jobs",
+		SQL: `
 CREATE TABLE IF NOT EXISTS jobs (
 	id text PRIMARY KEY,
 	name text NOT NULL,
@@ -68,8 +74,8 @@ CREATE TABLE IF NOT EXISTS job_logs (
 );
 
 CREATE INDEX IF NOT EXISTS job_logs_job_id_time_idx ON job_logs (job_id, time);
-`)
-	return err
+`,
+	}})
 }
 
 func (s *PostgresStore) Create(params CreateJobParams) (*Job, error) {
@@ -177,6 +183,67 @@ ORDER BY created_at DESC
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *PostgresStore) ListPage(params ListParams) ([]*Job, int, error) {
+	ctx, cancel := s.context()
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+FROM jobs
+WHERE ($1 = '' OR lower(status) = $1)
+	AND ($2 = '' OR lower(job_type) = $2)
+	AND ($3 = '' OR lower(name) LIKE '%' || $3 || '%')
+	AND ($4 = '' OR lower(coalesce(metadata->>'submitted_by', '')) = $4)
+	AND ($5 = '' OR lower(id || ' ' || name || ' ' || job_type || ' ' || error) LIKE '%' || $5 || '%')
+ORDER BY created_at DESC
+LIMIT NULLIF($6, 0) OFFSET $7
+`, strings.ToLower(params.Status), strings.ToLower(params.Type), strings.ToLower(params.Name),
+		strings.ToLower(params.SubmittedBy), strings.ToLower(params.Query), params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []*Job
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		logs, err := s.logs(ctx, s.db, job.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		job.Logs = logs
+		out = append(out, cloneJob(job))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	total, err := s.countPage(ctx, `
+SELECT count(*)
+FROM jobs
+WHERE ($1 = '' OR lower(status) = $1)
+	AND ($2 = '' OR lower(job_type) = $2)
+	AND ($3 = '' OR lower(name) LIKE '%' || $3 || '%')
+	AND ($4 = '' OR lower(coalesce(metadata->>'submitted_by', '')) = $4)
+	AND ($5 = '' OR lower(id || ' ' || name || ' ' || job_type || ' ' || error) LIKE '%' || $5 || '%')
+`, strings.ToLower(params.Status), strings.ToLower(params.Type), strings.ToLower(params.Name),
+		strings.ToLower(params.SubmittedBy), strings.ToLower(params.Query))
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+func (s *PostgresStore) countPage(ctx context.Context, query string, args ...any) (int, error) {
+	var total int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 func (s *PostgresStore) ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error) {

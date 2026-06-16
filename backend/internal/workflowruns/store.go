@@ -20,6 +20,15 @@ type Store interface {
 	MarkStatusByJob(jobID string, status string) (*Run, error)
 }
 
+type ListParams struct {
+	WorkflowID string
+	JobID      string
+	Status     string
+	Trigger    string
+	Limit      int
+	Offset     int
+}
+
 type MemoryStore struct {
 	mu   sync.RWMutex
 	runs map[string]*Run

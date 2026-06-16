@@ -19,6 +19,15 @@ type Store interface {
 	ListByWorkflow(workflowID string) ([]*Result, error)
 }
 
+type ListParams struct {
+	JobID      string
+	WorkflowID string
+	Type       string
+	Query      string
+	Limit      int
+	Offset     int
+}
+
 type MemoryStore struct {
 	mu      sync.RWMutex
 	results map[string]*Result

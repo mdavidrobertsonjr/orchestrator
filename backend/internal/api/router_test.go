@@ -137,6 +137,43 @@ func TestAuthTokenProtectsOperationalRoutes(t *testing.T) {
 	}
 }
 
+func TestScopedAPIKeysAuthorizeByRoute(t *testing.T) {
+	router := NewRouter(Config{
+		Queue:   jobs.NewMemoryQueue(2),
+		Store:   jobs.NewMemoryStore(),
+		Workers: workers.NewMemoryRegistry(),
+		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+		APIKeys: []APIKey{
+			{Name: "reader", Token: "read-token", Scopes: []string{"read"}},
+			{Name: "metrics", Token: "metrics-token", Scopes: []string{"metrics"}},
+		},
+	})
+
+	readReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	readReq.Header.Set("Authorization", "Bearer read-token")
+	readRec := httptest.NewRecorder()
+	router.ServeHTTP(readRec, readReq)
+	if readRec.Code != http.StatusOK {
+		t.Fatalf("expected read key to list jobs, got %d with body %s", readRec.Code, readRec.Body.String())
+	}
+
+	writeReq := httptest.NewRequest(http.MethodPost, "/v1/jobs", bytes.NewBufferString(`{"type":"demo"}`))
+	writeReq.Header.Set("Authorization", "Bearer read-token")
+	writeRec := httptest.NewRecorder()
+	router.ServeHTTP(writeRec, writeReq)
+	if writeRec.Code != http.StatusForbidden {
+		t.Fatalf("expected read key to be forbidden for writes, got %d with body %s", writeRec.Code, writeRec.Body.String())
+	}
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsReq.Header.Set("X-Orchestrator-Token", "metrics-token")
+	metricsRec := httptest.NewRecorder()
+	router.ServeHTTP(metricsRec, metricsReq)
+	if metricsRec.Code != http.StatusOK {
+		t.Fatalf("expected metrics key to read metrics, got %d with body %s", metricsRec.Code, metricsRec.Body.String())
+	}
+}
+
 func TestCreateJobValidation(t *testing.T) {
 	router := testRouter(jobs.NewMemoryStore(), jobs.NewMemoryQueue(2))
 
@@ -1007,6 +1044,43 @@ func TestCreateWorkflow(t *testing.T) {
 	}
 	if len(auditEvents) != 1 || auditEvents[0].Type != "audit.event" || auditEvents[0].Data["action"] != "workflow.created" {
 		t.Fatalf("expected workflow.created audit event, got %#v", auditEvents)
+	}
+}
+
+func TestGetWorkflowDoesNotRecordAuditEvent(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	resultStore := results.NewMemoryStore()
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{
+		Name:            "Read-only workflow",
+		JobType:         "demo",
+		Enabled:         true,
+		IntervalSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	router := NewRouter(Config{
+		Queue:     jobs.NewMemoryQueue(2),
+		Store:     jobs.NewMemoryStore(),
+		Workers:   workers.NewMemoryRegistry(),
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Workflows: workflowStore,
+		Results:   resultStore,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workflows/"+workflow.ID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	auditEvents, err := resultStore.List()
+	if err != nil {
+		t.Fatalf("list audit events: %v", err)
+	}
+	if len(auditEvents) != 0 {
+		t.Fatalf("expected no audit event for workflow read, got %#v", auditEvents)
 	}
 }
 

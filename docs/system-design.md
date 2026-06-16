@@ -276,12 +276,12 @@ Use this sequence when presenting the project:
 
 ## Next Engineering Improvements
 
-Highest-value improvements before presenting this as a mature system:
+The original maturity list is implemented: auth, pagination, source backoff, Workday/custom sources, alert preferences, ownership/audit events, and VPS deployment docs are part of the system.
 
-- Add authentication for the dashboard and API.
-- Add pagination and query filters for jobs, postings, workflow runs, and results.
-- Add per-source monitor rate limiting and exponential backoff.
-- Add Workday and custom careers-page adapters.
-- Add alert preferences such as quiet hours, digest-only, and max alerts per workflow.
-- Add workflow ownership and audit events.
-- Add deploy documentation for a small VPS or cloud service.
+Current hardening areas:
+
+- Replace private-deployment API keys with full user/session management if this becomes multi-user.
+- Expand notification delivery from email-only tracking into provider-specific routing for Slack, SMS, and webhooks.
+- Add migration review and release gates before applying schema changes automatically in production.
+- Add source-health dashboards from `monitor.source_health` results and operational alert metrics.
+- Add integration tests against a real Postgres service in CI for migrations, SQL pagination, notification delivery state, and scheduler locking.

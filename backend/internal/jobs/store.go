@@ -28,6 +28,16 @@ type Store interface {
 	AppendLog(id string, message string) error
 }
 
+type ListParams struct {
+	Status      string
+	Type        string
+	Name        string
+	SubmittedBy string
+	Query       string
+	Limit       int
+	Offset      int
+}
+
 type MemoryStore struct {
 	mu   sync.RWMutex
 	jobs map[string]*Job

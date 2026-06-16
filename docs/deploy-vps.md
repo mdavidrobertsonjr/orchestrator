@@ -86,7 +86,7 @@ Pull or deploy the new code, then rebuild:
 docker compose --profile app up --build -d
 ```
 
-Workflows, postings, runs, results, and audit events persist in Postgres. The scheduler resumes after restart and dispatches due workflows on the next tick.
+Workflows, postings, runs, results, notification deliveries, and audit events persist in Postgres. Startup migrations are recorded in `schema_migrations`. The scheduler resumes after restart and uses a Postgres advisory lock so only one API instance dispatches due workflows at a time.
 
 ## Backups
 
@@ -111,6 +111,7 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" http://127.0.0.1:8080/metrics
 curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" 'http://127.0.0.1:8080/v1/results?type=audit.event&limit=20'
+curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" 'http://127.0.0.1:8080/v1/results?type=monitor.source_health&limit=20'
 ```
 
 Watch logs:

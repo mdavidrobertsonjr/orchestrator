@@ -18,6 +18,7 @@ import (
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/monitor"
+	"orchestrator/backend/internal/notifications"
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/scheduler"
@@ -75,6 +76,13 @@ func main() {
 	}
 	defer closeResultStore()
 
+	notificationStore, closeNotificationStore, err := buildNotificationStore(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize notification store", "error", err)
+		return
+	}
+	defer closeNotificationStore()
+
 	runStore, closeRunStore, err := buildWorkflowRunStore(ctx, cfg, logger)
 	if err != nil {
 		logger.Error("failed to initialize workflow run store", "error", err)
@@ -86,6 +94,7 @@ func main() {
 	emailSender := buildEmailSender(cfg, logger)
 	executor := worker.NewSimulatedExecutor(logger, monitorRunner, resultStore, emailSender)
 	executor.SetDefaultRecipients(cfg.DefaultRecipients)
+	executor.SetNotificationStore(notificationStore)
 
 	if hydrateQueue {
 		if err := enqueuePendingJobs(ctx, store, queue); err != nil {
@@ -107,23 +116,33 @@ func main() {
 		logger.Info("embedded workers disabled")
 	}
 
+	schedulerLock, closeSchedulerLock, err := buildSchedulerLock(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialize scheduler lock", "error", err)
+		return
+	}
+	defer closeSchedulerLock()
+
 	scheduled := scheduler.NewWithRuns(scheduler.Config{
 		PollInterval: cfg.SchedulerPollInterval,
+		Lock:         schedulerLock,
 	}, workflowStore, runStore, store, queue, logger)
 	scheduled.Start(ctx)
 
 	handler := api.NewRouter(api.Config{
-		Queue:     queue,
-		Store:     store,
-		Workers:   registry,
-		Logger:    logger,
-		Static:    cfg.StaticDir,
-		Planner:   planner,
-		Postings:  postingStore,
-		Workflows: workflowStore,
-		Runs:      runStore,
-		Results:   resultStore,
-		AuthToken: cfg.AuthToken,
+		Queue:         queue,
+		Store:         store,
+		Workers:       registry,
+		Logger:        logger,
+		Static:        cfg.StaticDir,
+		Planner:       planner,
+		Postings:      postingStore,
+		Workflows:     workflowStore,
+		Runs:          runStore,
+		Results:       resultStore,
+		Notifications: notificationStore,
+		AuthToken:     cfg.AuthToken,
+		APIKeys:       cfg.APIKeys,
 	})
 
 	server := &http.Server{
@@ -178,6 +197,7 @@ type config struct {
 	SMTPFrom              string
 	DefaultRecipients     []string
 	AuthToken             string
+	APIKeys               []api.APIKey
 }
 
 func configFromEnv() config {
@@ -201,6 +221,7 @@ func configFromEnv() config {
 		SMTPFrom:              os.Getenv("ORCH_SMTP_FROM"),
 		DefaultRecipients:     envStringList("ORCH_DEFAULT_RECIPIENTS"),
 		AuthToken:             os.Getenv("ORCH_AUTH_TOKEN"),
+		APIKeys:               envAPIKeys("ORCH_API_KEYS"),
 	}
 }
 
@@ -267,6 +288,22 @@ func buildEmailSender(cfg config, logger *slog.Logger) email.Sender {
 		Password: cfg.SMTPPassword,
 		From:     cfg.SMTPFrom,
 	})
+}
+
+func buildSchedulerLock(ctx context.Context, cfg config, logger *slog.Logger) (scheduler.Lock, func(), error) {
+	if cfg.DatabaseURL == "" {
+		return nil, func() {}, nil
+	}
+	lock, err := scheduler.NewPostgresAdvisoryLock(ctx, cfg.DatabaseURL, "orchestrator.scheduler")
+	if err != nil {
+		return nil, nil, err
+	}
+	logger.Info("using postgres scheduler advisory lock")
+	return lock, func() {
+		if err := lock.Close(); err != nil {
+			logger.Error("failed to close scheduler lock", "error", err)
+		}
+	}, nil
 }
 
 func buildStore(ctx context.Context, cfg config, logger *slog.Logger) (jobs.Store, func(), error) {
@@ -373,6 +410,32 @@ func buildResultStore(ctx context.Context, cfg config, logger *slog.Logger) (res
 	}, nil
 }
 
+func buildNotificationStore(ctx context.Context, cfg config, logger *slog.Logger) (notifications.Store, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Info("using in-memory notification store")
+		return notifications.NewMemoryStore(), func() {}, nil
+	}
+
+	store, err := notifications.NewPostgresStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if cfg.AutoMigrateDB {
+		if err := store.Migrate(ctx); err != nil {
+			_ = store.Close()
+			return nil, nil, err
+		}
+	}
+
+	logger.Info("using postgres notification store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Error("failed to close postgres notification store", "error", err)
+		}
+	}, nil
+}
+
 func buildWorkflowRunStore(ctx context.Context, cfg config, logger *slog.Logger) (workflowruns.Store, func(), error) {
 	if cfg.DatabaseURL == "" {
 		logger.Info("using in-memory workflow run store")
@@ -470,6 +533,31 @@ func envStringList(key string) []string {
 		if part != "" {
 			out = append(out, part)
 		}
+	}
+	return out
+}
+
+func envAPIKeys(key string) []api.APIKey {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	entries := strings.Split(raw, ";")
+	out := make([]api.APIKey, 0, len(entries))
+	for _, entry := range entries {
+		parts := strings.Split(entry, ":")
+		if len(parts) < 2 {
+			continue
+		}
+		scopes := []string{"admin"}
+		if len(parts) >= 3 && strings.TrimSpace(parts[2]) != "" {
+			scopes = strings.Split(parts[2], "+")
+		}
+		out = append(out, api.APIKey{
+			Name:   strings.TrimSpace(parts[0]),
+			Token:  strings.TrimSpace(parts[1]),
+			Scopes: scopes,
+		})
 	}
 	return out
 }

@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+
+	"orchestrator/backend/internal/database"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -35,7 +38,10 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, s.db, "results", []database.Migration{{
+		Version: 1,
+		Name:    "create_results",
+		SQL: `
 CREATE TABLE IF NOT EXISTS results (
 	id text PRIMARY KEY,
 	job_id text NOT NULL DEFAULT '',
@@ -51,8 +57,8 @@ CREATE INDEX IF NOT EXISTS results_created_at_idx ON results (created_at DESC);
 CREATE INDEX IF NOT EXISTS results_job_id_idx ON results (job_id);
 CREATE INDEX IF NOT EXISTS results_workflow_id_idx ON results (workflow_id);
 CREATE INDEX IF NOT EXISTS results_type_idx ON results (result_type);
-`)
-	return err
+`,
+	}})
 }
 
 func (s *PostgresStore) Create(params CreateResultParams) (*Result, error) {
@@ -142,6 +148,41 @@ ORDER BY created_at DESC
 	defer rows.Close()
 
 	return scanResultRows(rows)
+}
+
+func (s *PostgresStore) ListPage(params ListParams) ([]*Result, int, error) {
+	ctx, cancel := s.context()
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, job_id, workflow_id, result_type, summary, data, created_at, updated_at
+FROM results
+WHERE ($1 = '' OR job_id = $1)
+	AND ($2 = '' OR workflow_id = $2)
+	AND ($3 = '' OR lower(result_type) = $3)
+	AND ($4 = '' OR lower(id || ' ' || result_type || ' ' || summary) LIKE '%' || $4 || '%')
+ORDER BY created_at DESC
+LIMIT NULLIF($5, 0) OFFSET $6
+`, params.JobID, params.WorkflowID, strings.ToLower(params.Type), strings.ToLower(params.Query), params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out, err := scanResultRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM results
+WHERE ($1 = '' OR job_id = $1)
+	AND ($2 = '' OR workflow_id = $2)
+	AND ($3 = '' OR lower(result_type) = $3)
+	AND ($4 = '' OR lower(id || ' ' || result_type || ' ' || summary) LIKE '%' || $4 || '%')
+`, params.JobID, params.WorkflowID, strings.ToLower(params.Type), strings.ToLower(params.Query)).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {

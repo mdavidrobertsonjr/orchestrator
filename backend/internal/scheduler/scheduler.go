@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	PollInterval time.Duration
+	Lock         Lock
 }
 
 type Scheduler struct {
@@ -23,6 +24,7 @@ type Scheduler struct {
 	jobs      jobs.Store
 	queue     jobs.Queue
 	logger    *slog.Logger
+	lock      Lock
 }
 
 func New(config Config, workflowStore workflows.Store, jobStore jobs.Store, queue jobs.Queue, logger *slog.Logger) *Scheduler {
@@ -40,6 +42,7 @@ func NewWithRuns(config Config, workflowStore workflows.Store, runStore workflow
 		jobs:      jobStore,
 		queue:     queue,
 		logger:    logger,
+		lock:      config.Lock,
 	}
 }
 
@@ -53,6 +56,20 @@ func (s *Scheduler) Tick(ctx context.Context, now time.Time) error {
 	}
 
 	now = now.UTC()
+	lock := s.lock
+	if lock == nil {
+		lock = noopLock{}
+	}
+	unlock, acquired, err := lock.TryLock(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire scheduler lock: %w", err)
+	}
+	if !acquired {
+		s.logInfo("scheduler tick skipped; another scheduler owns the lock")
+		return nil
+	}
+	defer unlock()
+
 	due, err := s.workflows.ListDue(now)
 	if err != nil {
 		return err

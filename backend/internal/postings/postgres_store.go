@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"orchestrator/backend/internal/database"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -36,7 +38,10 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, s.db, "postings", []database.Migration{{
+		Version: 1,
+		Name:    "create_postings",
+		SQL: `
 CREATE TABLE IF NOT EXISTS postings (
 	id text PRIMARY KEY,
 	company text NOT NULL,
@@ -58,8 +63,8 @@ CREATE TABLE IF NOT EXISTS postings (
 CREATE INDEX IF NOT EXISTS postings_first_seen_at_idx ON postings (first_seen_at DESC);
 CREATE INDEX IF NOT EXISTS postings_last_seen_at_idx ON postings (last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS postings_source_idx ON postings (source);
-`)
-	return err
+`,
+	}})
 }
 
 func (s *PostgresStore) Upsert(params UpsertPostingParams) (*Posting, bool, error) {
@@ -178,6 +183,55 @@ ORDER BY first_seen_at DESC
 		out = append(out, posting)
 	}
 	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListPage(params ListParams) ([]*Posting, int, error) {
+	ctx, cancel := s.context()
+	defer cancel()
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_at,
+	first_seen_at, last_seen_at, matched_at, match_score, match_reasons, metadata
+FROM postings
+WHERE ($1 = '' OR lower(company) LIKE '%' || $1 || '%')
+	AND ($2 = '' OR lower(source) = $2)
+	AND ($3 = '' OR lower(location) LIKE '%' || $3 || '%')
+	AND ($4 = 0 OR match_score >= $4)
+	AND ($5 = '' OR lower(company || ' ' || title || ' ' || location || ' ' || url) LIKE '%' || $5 || '%')
+ORDER BY first_seen_at DESC
+LIMIT NULLIF($6, 0) OFFSET $7
+`, strings.ToLower(params.Company), strings.ToLower(params.Source), strings.ToLower(params.Location),
+		params.MinScore, strings.ToLower(params.Query), params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []*Posting
+	for rows.Next() {
+		posting, err := scanPosting(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, posting)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM postings
+WHERE ($1 = '' OR lower(company) LIKE '%' || $1 || '%')
+	AND ($2 = '' OR lower(source) = $2)
+	AND ($3 = '' OR lower(location) LIKE '%' || $3 || '%')
+	AND ($4 = 0 OR match_score >= $4)
+	AND ($5 = '' OR lower(company || ' ' || title || ' ' || location || ' ' || url) LIKE '%' || $5 || '%')
+`, strings.ToLower(params.Company), strings.ToLower(params.Source), strings.ToLower(params.Location),
+		params.MinScore, strings.ToLower(params.Query)).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {

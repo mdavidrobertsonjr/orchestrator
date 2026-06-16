@@ -15,6 +15,7 @@ import (
 	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/monitor"
+	"orchestrator/backend/internal/notifications"
 	"orchestrator/backend/internal/results"
 )
 
@@ -27,6 +28,7 @@ type SimulatedExecutor struct {
 	monitorRunner     *monitor.Runner
 	results           results.Store
 	emailSender       email.Sender
+	notifications     notifications.Store
 	defaultRecipients []string
 	httpClient        *http.Client
 }
@@ -37,6 +39,10 @@ func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, re
 
 func (e *SimulatedExecutor) SetDefaultRecipients(recipients []string) {
 	e.defaultRecipients = cleanRecipients(recipients)
+}
+
+func (e *SimulatedExecutor) SetNotificationStore(store notifications.Store) {
+	e.notifications = store
 }
 
 func (e *SimulatedExecutor) SetHTTPClient(client *http.Client) {
@@ -50,6 +56,7 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 	if job.Type == monitor.NewGradJobType {
 		result, err := e.monitorRunner.Run(ctx, job.Payload, logf)
 		if err != nil {
+			_ = e.recordMonitorSourceFailure(job, err, logf)
 			return err
 		}
 		alertSent, err := e.sendMonitorAlert(ctx, job, result, logf)
@@ -64,7 +71,7 @@ func (e *SimulatedExecutor) Execute(ctx context.Context, job *jobs.Job, logf fun
 		if sender == nil {
 			sender = email.NewSimulatedSender(logf)
 		}
-		if err := e.sendEmailReport(ctx, job.Payload, sender, logf); err != nil {
+		if err := e.sendEmailReport(ctx, job, sender, logf); err != nil {
 			return err
 		}
 	} else if job.Type == "http.request" {
@@ -214,14 +221,15 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 		sender = email.NewSimulatedSender(logf)
 	}
 
-	if err := sender.Send(ctx, email.Message{
+	message := email.Message{
 		Recipients: config.recipients,
 		Subject:    fmt.Sprintf("New job monitor matches: %d", result.Created),
 		Body:       monitorAlertBody(job, result),
 		Metadata: map[string]string{
 			"kind": "monitor_alert",
 		},
-	}); err != nil {
+	}
+	if err := e.sendTrackedEmail(ctx, job, sender, message, logf); err != nil {
 		return false, err
 	}
 
@@ -384,14 +392,70 @@ func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.R
 	return nil
 }
 
-func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, payload map[string]any, sender email.Sender, logf func(string)) error {
+func (e *SimulatedExecutor) recordMonitorSourceFailure(job *jobs.Job, runErr error, logf func(string)) error {
+	if e.results == nil || job == nil {
+		return nil
+	}
+	workflowID := ""
+	if job.Metadata != nil {
+		workflowID = job.Metadata["workflow_id"]
+	}
+	sourceTypes := monitorSourceTypes(job.Payload)
+	created, err := e.results.Create(results.CreateResultParams{
+		JobID:      job.ID,
+		WorkflowID: workflowID,
+		Type:       "monitor.source_health",
+		Summary:    "monitor source failure: " + runErr.Error(),
+		Data: map[string]any{
+			"status":  "failed",
+			"error":   runErr.Error(),
+			"sources": sourceTypes,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	logf("recorded monitor source health result: " + created.ID)
+	return nil
+}
+
+func monitorSourceTypes(payload map[string]any) []string {
+	var parsed struct {
+		Sources []struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		} `json:"sources"`
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil
+	}
+	var out []string
+	for _, source := range parsed.Sources {
+		sourceType := strings.TrimSpace(source.Type)
+		if sourceType == "" {
+			sourceType = "fake"
+		}
+		if source.Name != "" {
+			sourceType += ":" + strings.TrimSpace(source.Name)
+		}
+		out = append(out, sourceType)
+	}
+	return out
+}
+
+func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, job *jobs.Job, sender email.Sender, logf func(string)) error {
+	payload := job.Payload
 	report, ok := payload["report"]
 	if !ok {
 		logf("email report payload missing; using default report")
-		return sender.Send(ctx, email.Message{
+		return e.sendTrackedEmail(ctx, job, sender, email.Message{
 			Subject:  "Orchestrator report",
 			Metadata: map[string]string{"kind": "job_summary", "schedule": "immediate"},
-		})
+		}, logf)
 	}
 
 	data, err := json.Marshal(report)
@@ -416,7 +480,7 @@ func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, payload map[str
 		body = e.monitorDigestBody(logf)
 	}
 
-	return sender.Send(ctx, email.Message{
+	return e.sendTrackedEmail(ctx, job, sender, email.Message{
 		Recipients: parsed.Recipients,
 		Subject:    parsed.Subject,
 		Body:       body,
@@ -424,7 +488,61 @@ func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, payload map[str
 			"kind":     parsed.Kind,
 			"schedule": parsed.Schedule,
 		},
-	})
+	}, logf)
+}
+
+func (e *SimulatedExecutor) sendTrackedEmail(ctx context.Context, job *jobs.Job, sender email.Sender, message email.Message, logf func(string)) error {
+	if sender == nil {
+		return errors.New("email sender is not configured")
+	}
+
+	var deliveryID string
+	if e.notifications != nil {
+		jobID := ""
+		workflowID := ""
+		if job != nil {
+			jobID = job.ID
+			if job.Metadata != nil {
+				workflowID = job.Metadata["workflow_id"]
+			}
+		}
+		kind := strings.TrimSpace(message.Metadata["kind"])
+		if kind == "" {
+			kind = "email"
+		}
+		delivery, err := e.notifications.Create(notifications.CreateDeliveryParams{
+			JobID:      jobID,
+			WorkflowID: workflowID,
+			Kind:       kind,
+			Provider:   "smtp",
+			Recipients: message.Recipients,
+			Subject:    message.Subject,
+			Metadata: map[string]any{
+				"schedule": message.Metadata["schedule"],
+			},
+		})
+		if err != nil {
+			return err
+		}
+		deliveryID = delivery.ID
+		if _, err := e.notifications.MarkAttempt(deliveryID); err != nil {
+			return err
+		}
+		logf("notification delivery recorded: " + deliveryID)
+	}
+
+	if err := sender.Send(ctx, message); err != nil {
+		if e.notifications != nil && deliveryID != "" {
+			_, _ = e.notifications.MarkFailed(deliveryID, err.Error())
+		}
+		return err
+	}
+	if e.notifications != nil && deliveryID != "" {
+		if _, err := e.notifications.MarkSucceeded(deliveryID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *SimulatedExecutor) monitorDigestBody(logf func(string)) string {

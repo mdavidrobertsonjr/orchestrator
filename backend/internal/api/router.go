@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
+	"orchestrator/backend/internal/notifications"
 	"orchestrator/backend/internal/postings"
 	"orchestrator/backend/internal/results"
 	"orchestrator/backend/internal/workers"
@@ -30,44 +32,54 @@ var (
 )
 
 type Config struct {
-	Queue     jobs.Queue
-	Store     jobs.Store
-	Workers   workers.Registry
-	Logger    *slog.Logger
-	Static    string
-	Planner   llm.Planner
-	Postings  postings.Store
-	Workflows workflows.Store
-	Runs      workflowruns.Store
-	Results   results.Store
-	AuthToken string
+	Queue         jobs.Queue
+	Store         jobs.Store
+	Workers       workers.Registry
+	Logger        *slog.Logger
+	Static        string
+	Planner       llm.Planner
+	Postings      postings.Store
+	Workflows     workflows.Store
+	Runs          workflowruns.Store
+	Results       results.Store
+	Notifications notifications.Store
+	AuthToken     string
+	APIKeys       []APIKey
+}
+
+type APIKey struct {
+	Name   string
+	Token  string
+	Scopes []string
 }
 
 type Server struct {
-	queue     jobs.Queue
-	store     jobs.Store
-	workers   workers.Registry
-	logger    *slog.Logger
-	planner   llm.Planner
-	postings  postings.Store
-	workflows workflows.Store
-	runs      workflowruns.Store
-	results   results.Store
-	authToken string
+	queue         jobs.Queue
+	store         jobs.Store
+	workers       workers.Registry
+	logger        *slog.Logger
+	planner       llm.Planner
+	postings      postings.Store
+	workflows     workflows.Store
+	runs          workflowruns.Store
+	results       results.Store
+	notifications notifications.Store
+	apiKeys       []APIKey
 }
 
 func NewRouter(config Config) http.Handler {
 	server := &Server{
-		queue:     config.Queue,
-		store:     config.Store,
-		workers:   config.Workers,
-		logger:    config.Logger,
-		planner:   config.Planner,
-		postings:  config.Postings,
-		workflows: config.Workflows,
-		runs:      config.Runs,
-		results:   config.Results,
-		authToken: strings.TrimSpace(config.AuthToken),
+		queue:         config.Queue,
+		store:         config.Store,
+		workers:       config.Workers,
+		logger:        config.Logger,
+		planner:       config.Planner,
+		postings:      config.Postings,
+		workflows:     config.Workflows,
+		runs:          config.Runs,
+		results:       config.Results,
+		notifications: config.Notifications,
+		apiKeys:       normalizedAPIKeys(config.AuthToken, config.APIKeys),
 	}
 
 	mux := http.NewServeMux()
@@ -101,7 +113,7 @@ func NewRouter(config Config) http.Handler {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
 
-	return requestLogger(server.logger, corsMiddleware(authMiddleware(server.authToken, mux)))
+	return requestLogger(server.logger, corsMiddleware(authMiddleware(server.apiKeys, mux)))
 }
 
 type createJobRequest struct {
@@ -139,13 +151,15 @@ type naturalCommandResponse struct {
 }
 
 type metricsResponse struct {
-	GeneratedAt time.Time         `json:"generated_at"`
-	Queue       queueMetrics      `json:"queue"`
-	Jobs        jobMetrics        `json:"jobs"`
-	Workers     workerMetrics     `json:"workers"`
-	Workflows   workflowMetrics   `json:"workflows"`
-	Postings    collectionMetrics `json:"postings"`
-	Results     collectionMetrics `json:"results"`
+	GeneratedAt   time.Time         `json:"generated_at"`
+	Queue         queueMetrics      `json:"queue"`
+	Jobs          jobMetrics        `json:"jobs"`
+	Workers       workerMetrics     `json:"workers"`
+	Workflows     workflowMetrics   `json:"workflows"`
+	Postings      collectionMetrics `json:"postings"`
+	Results       collectionMetrics `json:"results"`
+	Notifications collectionMetrics `json:"notifications"`
+	Alerts        []alertMetric     `json:"alerts"`
 }
 
 type queueMetrics struct {
@@ -180,7 +194,15 @@ type workflowMetrics struct {
 }
 
 type collectionMetrics struct {
-	Total int `json:"total"`
+	Total  int `json:"total"`
+	Failed int `json:"failed,omitempty"`
+}
+
+type alertMetric struct {
+	Severity string `json:"severity"`
+	Name     string `json:"name"`
+	Message  string `json:"message"`
+	Value    int    `json:"value"`
 }
 
 type eventSnapshot struct {
@@ -196,6 +218,22 @@ type paginationResponse struct {
 	Limit    int `json:"limit"`
 	Offset   int `json:"offset"`
 	Returned int `json:"returned"`
+}
+
+type jobsPageStore interface {
+	ListPage(params jobs.ListParams) ([]*jobs.Job, int, error)
+}
+
+type postingsPageStore interface {
+	ListPage(params postings.ListParams) ([]*postings.Posting, int, error)
+}
+
+type workflowRunsPageStore interface {
+	ListPage(params workflowruns.ListParams) ([]*workflowruns.Run, int, error)
+}
+
+type resultsPageStore interface {
+	ListPage(params results.ListParams) ([]*results.Result, int, error)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -588,6 +626,25 @@ func (s *Server) markRunStatus(jobID string, status string) {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
+	if pageStore, ok := s.store.(jobsPageStore); ok {
+		params, err := jobsListParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		page, total, err := pageStore.ListPage(params)
+		if err != nil {
+			s.logger.Error("failed to list jobs", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to list jobs")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"jobs":       page,
+			"pagination": pageResponse(total, params.Limit, params.Offset, len(page)),
+		})
+		return
+	}
+
 	allJobs, err := s.store.List()
 	if err != nil {
 		s.logger.Error("failed to list jobs", "error", err)
@@ -737,7 +794,61 @@ func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 		response.Results.Total = len(results)
 	}
 
+	if s.notifications != nil {
+		deliveries, err := s.notifications.List()
+		if err != nil {
+			s.logger.Error("failed to list notifications for metrics", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to collect metrics")
+			return metricsResponse{}, false
+		}
+		response.Notifications.Total = len(deliveries)
+		for _, delivery := range deliveries {
+			if delivery.Status == "failed" {
+				response.Notifications.Failed++
+			}
+		}
+	}
+
+	response.Alerts = operationalAlerts(response)
+
 	return response, true
+}
+
+func operationalAlerts(metrics metricsResponse) []alertMetric {
+	var alerts []alertMetric
+	if metrics.Jobs.ByStatus[string(jobs.StatusDeadLetter)] > 0 {
+		alerts = append(alerts, alertMetric{
+			Severity: "critical",
+			Name:     "dead_letter_jobs",
+			Message:  "one or more jobs are dead-lettered",
+			Value:    metrics.Jobs.ByStatus[string(jobs.StatusDeadLetter)],
+		})
+	}
+	if metrics.Jobs.ExpiredLeases > 0 {
+		alerts = append(alerts, alertMetric{
+			Severity: "critical",
+			Name:     "expired_leases",
+			Message:  "one or more running job leases have expired",
+			Value:    metrics.Jobs.ExpiredLeases,
+		})
+	}
+	if metrics.Workflows.Due > 0 {
+		alerts = append(alerts, alertMetric{
+			Severity: "warning",
+			Name:     "scheduler_lag",
+			Message:  "one or more enabled workflows are due",
+			Value:    metrics.Workflows.Due,
+		})
+	}
+	if metrics.Notifications.Failed > 0 {
+		alerts = append(alerts, alertMetric{
+			Severity: "warning",
+			Name:     "notification_failures",
+			Message:  "one or more notification deliveries failed",
+			Value:    metrics.Notifications.Failed,
+		})
+	}
+	return alerts
 }
 
 func prometheusMetrics(metrics metricsResponse) string {
@@ -765,6 +876,11 @@ func prometheusMetrics(metrics metricsResponse) string {
 	writePromMetric(&out, "orchestrator_workflow_runs_total", nil, float64(metrics.Workflows.RunRecords))
 	writePromMetric(&out, "orchestrator_postings_total", nil, float64(metrics.Postings.Total))
 	writePromMetric(&out, "orchestrator_results_total", nil, float64(metrics.Results.Total))
+	writePromMetric(&out, "orchestrator_notifications_total", nil, float64(metrics.Notifications.Total))
+	writePromMetric(&out, "orchestrator_notifications_failed", nil, float64(metrics.Notifications.Failed))
+	for _, alert := range metrics.Alerts {
+		writePromMetric(&out, "orchestrator_operational_alert", map[string]string{"name": alert.Name, "severity": alert.Severity}, float64(alert.Value))
+	}
 	return out.String()
 }
 
@@ -794,6 +910,25 @@ func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListPostings(w http.ResponseWriter, r *http.Request) {
 	if s.postings == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"postings": []*postings.Posting{}})
+		return
+	}
+
+	if pageStore, ok := s.postings.(postingsPageStore); ok {
+		params, err := postingsListParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		page, total, err := pageStore.ListPage(params)
+		if err != nil {
+			s.logger.Error("failed to list postings", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to list postings")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"postings":   page,
+			"pagination": pageResponse(total, params.Limit, params.Offset, len(page)),
+		})
 		return
 	}
 
@@ -990,7 +1125,25 @@ func metadataWithOwner(metadata map[string]string, owner string) map[string]stri
 }
 
 func ownerFromRequest(r *http.Request) string {
-	return strings.TrimSpace(r.Header.Get("X-Orchestrator-Owner"))
+	if owner := strings.TrimSpace(r.Header.Get("X-Orchestrator-Owner")); owner != "" {
+		return owner
+	}
+	return authActor(r)
+}
+
+type authContextKey struct{}
+
+type authPrincipal struct {
+	Name   string
+	Scopes map[string]bool
+}
+
+func authActor(r *http.Request) string {
+	principal, ok := r.Context().Value(authContextKey{}).(authPrincipal)
+	if !ok {
+		return ""
+	}
+	return principal.Name
 }
 
 func firstNonEmptyString(values ...string) string {
@@ -1019,15 +1172,6 @@ func (s *Server) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.recordAuditEvent(r, auditEvent{
-		Action:     "workflow.updated",
-		WorkflowID: workflow.ID,
-		Summary:    "workflow updated: " + workflow.Name,
-		Data: map[string]any{
-			"enabled": workflow.Enabled,
-			"owner":   workflow.Metadata["owner"],
-		},
-	})
 	writeJSON(w, http.StatusOK, workflow)
 }
 
@@ -1058,6 +1202,15 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.recordAuditEvent(r, auditEvent{
+		Action:     "workflow.updated",
+		WorkflowID: workflow.ID,
+		Summary:    "workflow updated: " + workflow.Name,
+		Data: map[string]any{
+			"enabled": workflow.Enabled,
+			"owner":   workflow.Metadata["owner"],
+		},
+	})
 	writeJSON(w, http.StatusOK, workflow)
 }
 
@@ -1165,6 +1318,22 @@ func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if pageStore, ok := s.runs.(workflowRunsPageStore); ok {
+		params, err := workflowRunsListParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		page, total, err := pageStore.ListPage(params)
+		if err != nil {
+			s.logger.Error("failed to list workflow runs", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to list workflow runs")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"runs": page, "pagination": pageResponse(total, params.Limit, params.Offset, len(page))})
+		return
+	}
+
 	var (
 		runs []*workflowruns.Run
 		err  error
@@ -1212,6 +1381,25 @@ func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 	if s.results == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"results": []*results.Result{}})
+		return
+	}
+
+	if pageStore, ok := s.results.(resultsPageStore); ok {
+		params, err := resultsListParams(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		page, total, err := pageStore.ListPage(params)
+		if err != nil {
+			s.logger.Error("failed to list results", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to list results")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"results":    page,
+			"pagination": pageResponse(total, params.Limit, params.Offset, len(page)),
+		})
 		return
 	}
 
@@ -1377,23 +1565,9 @@ func filterResults(items []*results.Result, r *http.Request) []*results.Result {
 }
 
 func paginate[T any](items []T, r *http.Request) ([]T, paginationResponse, error) {
-	limit, err := optionalNonNegativeInt(r, "limit")
+	limit, offset, err := paginationFromRequest(r)
 	if err != nil {
 		return nil, paginationResponse{}, err
-	}
-	offset, err := optionalNonNegativeInt(r, "offset")
-	if err != nil {
-		return nil, paginationResponse{}, err
-	}
-	if limit == 0 {
-		pageSize, err := optionalNonNegativeInt(r, "page_size")
-		if err != nil {
-			return nil, paginationResponse{}, err
-		}
-		limit = pageSize
-		if page := queryInt(r, "page"); page > 0 && limit > 0 {
-			offset = (page - 1) * limit
-		}
 	}
 	if offset > len(items) {
 		offset = len(items)
@@ -1404,11 +1578,94 @@ func paginate[T any](items []T, r *http.Request) ([]T, paginationResponse, error
 		end = offset + limit
 	}
 	page := items[offset:end]
-	return page, paginationResponse{
-		Total:    len(items),
+	return page, pageResponse(len(items), limit, offset, len(page)), nil
+}
+
+func paginationFromRequest(r *http.Request) (int, int, error) {
+	limit, err := optionalNonNegativeInt(r, "limit")
+	if err != nil {
+		return 0, 0, err
+	}
+	offset, err := optionalNonNegativeInt(r, "offset")
+	if err != nil {
+		return 0, 0, err
+	}
+	if limit == 0 {
+		pageSize, err := optionalNonNegativeInt(r, "page_size")
+		if err != nil {
+			return 0, 0, err
+		}
+		limit = pageSize
+		if page := queryInt(r, "page"); page > 0 && limit > 0 {
+			offset = (page - 1) * limit
+		}
+	}
+	return limit, offset, nil
+}
+
+func pageResponse(total int, limit int, offset int, returned int) paginationResponse {
+	return paginationResponse{Total: total, Limit: limit, Offset: offset, Returned: returned}
+}
+
+func jobsListParams(r *http.Request) (jobs.ListParams, error) {
+	limit, offset, err := paginationFromRequest(r)
+	if err != nil {
+		return jobs.ListParams{}, err
+	}
+	return jobs.ListParams{
+		Status:      strings.TrimSpace(r.URL.Query().Get("status")),
+		Type:        strings.TrimSpace(r.URL.Query().Get("type")),
+		Name:        strings.TrimSpace(r.URL.Query().Get("name")),
+		SubmittedBy: strings.TrimSpace(r.URL.Query().Get("submitted_by")),
+		Query:       strings.TrimSpace(r.URL.Query().Get("q")),
+		Limit:       limit,
+		Offset:      offset,
+	}, nil
+}
+
+func postingsListParams(r *http.Request) (postings.ListParams, error) {
+	limit, offset, err := paginationFromRequest(r)
+	if err != nil {
+		return postings.ListParams{}, err
+	}
+	return postings.ListParams{
+		Company:  strings.TrimSpace(r.URL.Query().Get("company")),
+		Source:   strings.TrimSpace(r.URL.Query().Get("source")),
+		Location: strings.TrimSpace(r.URL.Query().Get("location")),
+		Query:    strings.TrimSpace(r.URL.Query().Get("q")),
+		MinScore: queryInt(r, "min_score"),
 		Limit:    limit,
 		Offset:   offset,
-		Returned: len(page),
+	}, nil
+}
+
+func workflowRunsListParams(r *http.Request) (workflowruns.ListParams, error) {
+	limit, offset, err := paginationFromRequest(r)
+	if err != nil {
+		return workflowruns.ListParams{}, err
+	}
+	return workflowruns.ListParams{
+		WorkflowID: strings.TrimSpace(r.URL.Query().Get("workflow_id")),
+		JobID:      strings.TrimSpace(r.URL.Query().Get("job_id")),
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+		Trigger:    strings.TrimSpace(r.URL.Query().Get("trigger")),
+		Limit:      limit,
+		Offset:     offset,
+	}, nil
+}
+
+func resultsListParams(r *http.Request) (results.ListParams, error) {
+	limit, offset, err := paginationFromRequest(r)
+	if err != nil {
+		return results.ListParams{}, err
+	}
+	return results.ListParams{
+		JobID:      strings.TrimSpace(r.URL.Query().Get("job_id")),
+		WorkflowID: strings.TrimSpace(r.URL.Query().Get("workflow_id")),
+		Type:       strings.TrimSpace(r.URL.Query().Get("type")),
+		Query:      strings.TrimSpace(r.URL.Query().Get("q")),
+		Limit:      limit,
+		Offset:     offset,
 	}, nil
 }
 
@@ -1473,7 +1730,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Orchestrator-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Orchestrator-Token, X-Orchestrator-Owner")
 		}
 
 		if r.Method == http.MethodOptions {
@@ -1485,19 +1742,28 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func authMiddleware(token string, next http.Handler) http.Handler {
-	token = strings.TrimSpace(token)
-	if token == "" {
+func authMiddleware(keys []APIKey, next http.Handler) http.Handler {
+	keys = normalizedAPIKeys("", keys)
+	if len(keys) == 0 {
 		return next
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !requiresAuth(r) || authorizedRequest(r, token) {
+		if !requiresAuth(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		principal, ok := authorizedRequest(r, keys)
+		if ok && principal.allows(requiredScope(r)) {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authContextKey{}, principal)))
 			return
 		}
 
 		w.Header().Set("WWW-Authenticate", `Bearer realm="orchestrator"`)
+		if ok {
+			writeError(w, http.StatusForbidden, "insufficient API key scope")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "authentication required")
 	})
 }
@@ -1507,18 +1773,70 @@ func requiresAuth(r *http.Request) bool {
 	return path == "/metrics" || path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
 
-func authorizedRequest(r *http.Request, token string) bool {
+func authorizedRequest(r *http.Request, keys []APIKey) (authPrincipal, bool) {
 	candidates := []string{
 		bearerToken(r.Header.Get("Authorization")),
 		strings.TrimSpace(r.Header.Get("X-Orchestrator-Token")),
 		strings.TrimSpace(r.URL.Query().Get("auth_token")),
 	}
 	for _, candidate := range candidates {
-		if candidate != "" && subtle.ConstantTimeCompare([]byte(candidate), []byte(token)) == 1 {
-			return true
+		if candidate == "" {
+			continue
+		}
+		for _, key := range keys {
+			if subtle.ConstantTimeCompare([]byte(candidate), []byte(key.Token)) == 1 {
+				return principalFromKey(key), true
+			}
 		}
 	}
-	return false
+	return authPrincipal{}, false
+}
+
+func normalizedAPIKeys(legacyToken string, keys []APIKey) []APIKey {
+	var out []APIKey
+	if strings.TrimSpace(legacyToken) != "" {
+		out = append(out, APIKey{Name: "legacy-token", Token: strings.TrimSpace(legacyToken), Scopes: []string{"admin"}})
+	}
+	for _, key := range keys {
+		key.Name = strings.TrimSpace(key.Name)
+		key.Token = strings.TrimSpace(key.Token)
+		if key.Name == "" {
+			key.Name = "api-key"
+		}
+		if key.Token == "" {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
+func principalFromKey(key APIKey) authPrincipal {
+	scopes := map[string]bool{}
+	for _, scope := range key.Scopes {
+		scope = strings.ToLower(strings.TrimSpace(scope))
+		if scope != "" {
+			scopes[scope] = true
+		}
+	}
+	if len(scopes) == 0 {
+		scopes["admin"] = true
+	}
+	return authPrincipal{Name: key.Name, Scopes: scopes}
+}
+
+func (p authPrincipal) allows(scope string) bool {
+	return p.Scopes["admin"] || p.Scopes[strings.ToLower(scope)]
+}
+
+func requiredScope(r *http.Request) string {
+	if r.URL.Path == "/metrics" || r.URL.Path == "/v1/metrics" {
+		return "metrics"
+	}
+	if r.Method == http.MethodGet {
+		return "read"
+	}
+	return "write"
 }
 
 func bearerToken(header string) string {

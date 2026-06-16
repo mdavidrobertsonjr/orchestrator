@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+
+	"orchestrator/backend/internal/database"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -33,7 +36,10 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, s.db, "workflowruns", []database.Migration{{
+		Version: 1,
+		Name:    "create_workflow_runs",
+		SQL: `
 CREATE TABLE IF NOT EXISTS workflow_runs (
 	id text PRIMARY KEY,
 	workflow_id text NOT NULL,
@@ -54,8 +60,8 @@ CREATE INDEX IF NOT EXISTS workflow_runs_created_at_idx ON workflow_runs (create
 CREATE INDEX IF NOT EXISTS workflow_runs_workflow_id_idx ON workflow_runs (workflow_id);
 CREATE INDEX IF NOT EXISTS workflow_runs_job_id_idx ON workflow_runs (job_id);
 CREATE UNIQUE INDEX IF NOT EXISTS workflow_runs_idempotency_key_idx ON workflow_runs (idempotency_key) WHERE idempotency_key <> '';
-`)
-	return err
+`,
+	}})
 }
 
 func (s *PostgresStore) Create(params CreateRunParams) (*Run, error) {
@@ -147,6 +153,41 @@ ORDER BY created_at DESC
 	}
 	defer rows.Close()
 	return scanRunRows(rows)
+}
+
+func (s *PostgresStore) ListPage(params ListParams) ([]*Run, int, error) {
+	ctx, cancel := s.context()
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, workflow_id, job_id, trigger, status, scheduled_for, idempotency_key, metadata, created_at, updated_at
+FROM workflow_runs
+WHERE ($1 = '' OR workflow_id = $1)
+	AND ($2 = '' OR job_id = $2)
+	AND ($3 = '' OR lower(status) = $3)
+	AND ($4 = '' OR lower(trigger) = $4)
+ORDER BY created_at DESC
+LIMIT NULLIF($5, 0) OFFSET $6
+`, params.WorkflowID, params.JobID, strings.ToLower(params.Status), strings.ToLower(params.Trigger), params.Limit, params.Offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out, err := scanRunRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+SELECT count(*)
+FROM workflow_runs
+WHERE ($1 = '' OR workflow_id = $1)
+	AND ($2 = '' OR job_id = $2)
+	AND ($3 = '' OR lower(status) = $3)
+	AND ($4 = '' OR lower(trigger) = $4)
+`, params.WorkflowID, params.JobID, strings.ToLower(params.Status), strings.ToLower(params.Trigger)).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 func (s *PostgresStore) MarkStatusByJob(jobID string, status string) (*Run, error) {

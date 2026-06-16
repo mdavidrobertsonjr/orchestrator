@@ -19,6 +19,16 @@ type Store interface {
 	List() ([]*Posting, error)
 }
 
+type ListParams struct {
+	Company  string
+	Source   string
+	Location string
+	Query    string
+	MinScore int
+	Limit    int
+	Offset   int
+}
+
 type MemoryStore struct {
 	mu       sync.RWMutex
 	postings map[string]*Posting
@@ -187,4 +197,3 @@ func newID() string {
 	}
 	return hex.EncodeToString(b[:])
 }
-

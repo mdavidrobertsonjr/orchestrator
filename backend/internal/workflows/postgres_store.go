@@ -7,6 +7,8 @@ import (
 	"errors"
 	"time"
 
+	"orchestrator/backend/internal/database"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -35,7 +37,10 @@ func (s *PostgresStore) Close() error {
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	return database.RunMigrations(ctx, s.db, "workflows", []database.Migration{{
+		Version: 1,
+		Name:    "create_workflows",
+		SQL: `
 CREATE TABLE IF NOT EXISTS workflows (
 	id text PRIMARY KEY,
 	name text NOT NULL,
@@ -54,8 +59,8 @@ CREATE TABLE IF NOT EXISTS workflows (
 
 CREATE INDEX IF NOT EXISTS workflows_due_idx ON workflows (enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS workflows_created_at_idx ON workflows (created_at DESC);
-`)
-	return err
+`,
+	}})
 }
 
 func (s *PostgresStore) Create(params CreateWorkflowParams) (*Workflow, error) {

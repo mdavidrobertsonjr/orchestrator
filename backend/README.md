@@ -189,10 +189,8 @@ curl http://localhost:8080/v1/events
 
 ## Roadmap
 
-- Redis-backed durable queue and pub/sub events.
-- Separate worker binary for distributed execution.
-- Worker registration, heartbeats, and liveness detection.
-- Dead-letter queue and richer retry policies.
-- WebSocket updates for dashboard state and logs.
-- Docker sandbox executor.
-- Metrics dashboards and alerting rules.
+- Real user/session management if the project moves beyond private deployment API keys.
+- Provider-specific notification routing beyond tracked email delivery.
+- Postgres-backed integration tests in CI for migrations, SQL pagination, notification state, and scheduler advisory locking.
+- Optional dedicated queue backend for higher-throughput deployments.
+- Docker sandbox executor for trusted typed jobs that need process isolation.
