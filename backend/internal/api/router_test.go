@@ -163,6 +163,84 @@ func TestCreateJobValidation(t *testing.T) {
 	}
 }
 
+func TestListJobsFiltersAndPaginates(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	queue := jobs.NewMemoryQueue(4)
+	router := testRouter(store, queue)
+
+	if _, err := store.Create(jobs.CreateJobParams{Name: "first monitor", Type: "jobs.monitor.new_grad", Metadata: map[string]string{"submitted_by": "seed"}}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.Create(jobs.CreateJobParams{Name: "second report", Type: "report.email", Metadata: map[string]string{"submitted_by": "dashboard"}}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.Create(jobs.CreateJobParams{Name: "third monitor", Type: "jobs.monitor.new_grad", Metadata: map[string]string{"submitted_by": "seed"}}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs?type=jobs.monitor.new_grad&submitted_by=seed&limit=1&offset=1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Jobs       []jobs.Job         `json:"jobs"`
+		Pagination paginationResponse `json:"pagination"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Jobs) != 1 || response.Jobs[0].Type != "jobs.monitor.new_grad" {
+		t.Fatalf("unexpected filtered page: %#v", response.Jobs)
+	}
+	if response.Pagination.Total != 2 || response.Pagination.Limit != 1 || response.Pagination.Offset != 1 || response.Pagination.Returned != 1 {
+		t.Fatalf("unexpected pagination metadata: %#v", response.Pagination)
+	}
+}
+
+func TestListPostingsFiltersAndPaginates(t *testing.T) {
+	postingStore := postings.NewMemoryStore()
+	router := NewRouter(Config{
+		Queue:    jobs.NewMemoryQueue(2),
+		Store:    jobs.NewMemoryStore(),
+		Workers:  workers.NewMemoryRegistry(),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Postings: postingStore,
+	})
+
+	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "OpenAI", Title: "Software Engineer, New Grad", URL: "https://example.com/openai", Source: "ashby", Location: "San Francisco", MatchScore: 40}); err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
+	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "Stripe", Title: "Account Executive", URL: "https://example.com/stripe", Source: "greenhouse", Location: "New York", MatchScore: 10}); err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/postings?source=ashby&min_score=20&q=software&page_size=1&page=1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		Postings   []postings.Posting `json:"postings"`
+		Pagination paginationResponse `json:"pagination"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Postings) != 1 || response.Postings[0].Company != "OpenAI" {
+		t.Fatalf("unexpected filtered postings: %#v", response.Postings)
+	}
+	if response.Pagination.Total != 1 || response.Pagination.Limit != 1 || response.Pagination.Returned != 1 {
+		t.Fatalf("unexpected pagination metadata: %#v", response.Pagination)
+	}
+}
+
 func TestCreateNaturalJobQueuesPlannedJob(t *testing.T) {
 	store := jobs.NewMemoryStore()
 	queue := jobs.NewMemoryQueue(2)

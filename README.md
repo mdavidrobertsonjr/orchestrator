@@ -144,6 +144,17 @@ The project is organized around production orchestration concerns:
 
 For interview prep and architecture review, see [System Design](docs/system-design.md).
 
+## List Filters And Pagination
+
+Collection endpoints keep their original response arrays and also include `pagination` metadata when queried. Use `limit` and `offset`, or `page_size` and `page`, to page results.
+
+Supported filters:
+
+- `GET /v1/jobs`: `status`, `type`, `name`, `submitted_by`, `q`
+- `GET /v1/postings`: `company`, `source`, `location`, `min_score`, `q`
+- `GET /v1/workflow-runs`: `workflow_id`, `job_id`, `status`, `trigger`
+- `GET /v1/results`: `job_id`, `workflow_id`, `type`, `q`
+
 ## English Job Requests
 
 Set an OpenAI API key before starting the backend to enable the dashboard's English job request form:

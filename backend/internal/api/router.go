@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -187,6 +188,13 @@ type eventSnapshot struct {
 	Jobs        jobMetrics      `json:"jobs"`
 	Workers     workerMetrics   `json:"workers"`
 	Workflows   workflowMetrics `json:"workflows"`
+}
+
+type paginationResponse struct {
+	Total    int `json:"total"`
+	Limit    int `json:"limit"`
+	Offset   int `json:"offset"`
+	Returned int `json:"returned"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -550,15 +558,22 @@ func (s *Server) markRunStatus(jobID string, status string) {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := s.store.List()
+	allJobs, err := s.store.List()
 	if err != nil {
 		s.logger.Error("failed to list jobs", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list jobs")
 		return
 	}
+	filtered := filterJobs(allJobs, r)
+	jobsPage, pagination, err := paginate(filtered, r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"jobs": jobs,
+		"jobs":       jobsPage,
+		"pagination": pagination,
 	})
 }
 
@@ -752,15 +767,22 @@ func (s *Server) handleListPostings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	postings, err := s.postings.List()
+	allPostings, err := s.postings.List()
 	if err != nil {
 		s.logger.Error("failed to list postings", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list postings")
 		return
 	}
+	filtered := filterPostings(allPostings, r)
+	postingsPage, pagination, err := paginate(filtered, r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"postings": postings,
+		"postings":   postingsPage,
+		"pagination": pagination,
 	})
 }
 
@@ -1072,8 +1094,14 @@ func (s *Server) handleListWorkflowRuns(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to list workflow runs")
 		return
 	}
+	filtered := filterWorkflowRuns(runs, r)
+	runsPage, pagination, err := paginate(filtered, r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runsPage, "pagination": pagination})
 }
 
 func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
@@ -1118,10 +1146,166 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list results")
 		return
 	}
+	filtered := filterResults(resultsList, r)
+	resultsPage, pagination, err := paginate(filtered, r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"results": resultsList,
+		"results":    resultsPage,
+		"pagination": pagination,
 	})
+}
+
+func filterJobs(items []*jobs.Job, r *http.Request) []*jobs.Job {
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	jobType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	name := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("name")))
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	submittedBy := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("submitted_by")))
+
+	out := items[:0]
+	for _, job := range items {
+		if status != "" && strings.ToLower(string(job.Status)) != status {
+			continue
+		}
+		if jobType != "" && strings.ToLower(job.Type) != jobType {
+			continue
+		}
+		if name != "" && !strings.Contains(strings.ToLower(job.Name), name) {
+			continue
+		}
+		if submittedBy != "" && strings.ToLower(job.Metadata["submitted_by"]) != submittedBy {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{job.ID, job.Name, job.Type, job.Error}, " ")), query) {
+			continue
+		}
+		out = append(out, job)
+	}
+	return out
+}
+
+func filterPostings(items []*postings.Posting, r *http.Request) []*postings.Posting {
+	company := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("company")))
+	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+	location := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("location")))
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	minScore := queryInt(r, "min_score")
+
+	out := items[:0]
+	for _, posting := range items {
+		if company != "" && !strings.Contains(strings.ToLower(posting.Company), company) {
+			continue
+		}
+		if source != "" && strings.ToLower(posting.Source) != source {
+			continue
+		}
+		if location != "" && !strings.Contains(strings.ToLower(posting.Location), location) {
+			continue
+		}
+		if minScore > 0 && posting.MatchScore < minScore {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{posting.Company, posting.Title, posting.Location, posting.URL}, " ")), query) {
+			continue
+		}
+		out = append(out, posting)
+	}
+	return out
+}
+
+func filterWorkflowRuns(items []*workflowruns.Run, r *http.Request) []*workflowruns.Run {
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	trigger := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("trigger")))
+
+	out := items[:0]
+	for _, run := range items {
+		if jobID != "" && run.JobID != jobID {
+			continue
+		}
+		if status != "" && strings.ToLower(run.Status) != status {
+			continue
+		}
+		if trigger != "" && strings.ToLower(run.Trigger) != trigger {
+			continue
+		}
+		out = append(out, run)
+	}
+	return out
+}
+
+func filterResults(items []*results.Result, r *http.Request) []*results.Result {
+	resultType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+
+	out := items[:0]
+	for _, result := range items {
+		if resultType != "" && strings.ToLower(result.Type) != resultType {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{result.ID, result.Type, result.Summary}, " ")), query) {
+			continue
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func paginate[T any](items []T, r *http.Request) ([]T, paginationResponse, error) {
+	limit, err := optionalNonNegativeInt(r, "limit")
+	if err != nil {
+		return nil, paginationResponse{}, err
+	}
+	offset, err := optionalNonNegativeInt(r, "offset")
+	if err != nil {
+		return nil, paginationResponse{}, err
+	}
+	if limit == 0 {
+		pageSize, err := optionalNonNegativeInt(r, "page_size")
+		if err != nil {
+			return nil, paginationResponse{}, err
+		}
+		limit = pageSize
+		if page := queryInt(r, "page"); page > 0 && limit > 0 {
+			offset = (page - 1) * limit
+		}
+	}
+	if offset > len(items) {
+		offset = len(items)
+	}
+
+	end := len(items)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	page := items[offset:end]
+	return page, paginationResponse{
+		Total:    len(items),
+		Limit:    limit,
+		Offset:   offset,
+		Returned: len(page),
+	}, nil
+}
+
+func optionalNonNegativeInt(r *http.Request, key string) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	return value, nil
+}
+
+func queryInt(r *http.Request, key string) int {
+	value, _ := optionalNonNegativeInt(r, key)
+	return value
 }
 
 func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
