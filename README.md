@@ -69,6 +69,8 @@ Run the containerized API, worker, and Postgres deployment shape:
 make compose-app
 ```
 
+For a small VPS or cloud VM deployment, see [Deploy On A Small VPS](docs/deploy-vps.md).
+
 Stop Postgres when you are done:
 
 ```bash
