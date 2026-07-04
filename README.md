@@ -1,8 +1,15 @@
 # Distributed Job Orchestrator
 
-Distributed job orchestration MVP with a Go control-plane API, embedded workers, optional Postgres job persistence, and a React operations dashboard.
+A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad SWE postings and sends alerts or digests when useful matches appear.
 
-The long-term direction is a general-purpose task orchestrator: a user should be able to describe useful work in English, have the system plan it into structured jobs, run those jobs through workers, persist state, retry failures, and report results. Job monitoring is the first flagship workflow because it is personally useful and gives the orchestrator a real recurring workload.
+## What It Does
+
+- Accepts immediate jobs and recurring workflow definitions.
+- Converts English requests into structured jobs or workflows when `OPENAI_API_KEY` is configured.
+- Runs work through embedded or standalone workers with retries, leases, and dead-letter handling.
+- Persists jobs, logs, workflows, runs, postings, results, notifications, and audit events in Postgres.
+- Shows queue health, workers, logs, workflow runs, postings, results, metrics, and operational alerts in the dashboard.
+- Supports deployment as a single server or as separate API, worker, and Postgres processes.
 
 ## Quick Start
 
@@ -11,6 +18,7 @@ Install frontend dependencies once:
 ```bash
 cd frontend
 npm install
+cd ..
 ```
 
 Run the API and dashboard together with in-memory storage:
@@ -19,7 +27,7 @@ Run the API and dashboard together with in-memory storage:
 make dev
 ```
 
-Open the dashboard:
+Open the dashboard at:
 
 ```text
 http://localhost:5173
@@ -37,64 +45,36 @@ Open:
 http://localhost:8080
 ```
 
-## Postgres Mode
-
-Start the API and dashboard with a local Postgres container:
+## Common Commands
 
 ```bash
-make dev-postgres
-```
-
-Or run the single-server website with Postgres:
-
-```bash
-make website-postgres
-```
-
-Run the API, dashboard, and a separate worker process against Postgres:
-
-```bash
-make dev-distributed
-```
-
-Run a distributed smoke test that starts Postgres, runs the API without embedded workers, starts a standalone worker, submits a job, and verifies worker/metrics visibility:
-
-```bash
-make smoke-distributed
-```
-
-Run Postgres integration tests for migrations, SQL pagination, notification delivery state, and scheduler advisory locking:
-
-```bash
-make smoke-postgres
-```
-
-Run the containerized API, worker, and Postgres deployment shape:
-
-```bash
-make check-deploy
-make compose-app
+make test                 # Backend tests and frontend build
+make demo                 # Seed and run a deterministic fake job monitor
+make dev-postgres         # API and dashboard with local Postgres
+make website-postgres     # Built dashboard served by API with Postgres
+make dev-distributed      # API, dashboard, Postgres, and standalone worker
+make smoke-postgres       # Postgres integration checks
+make smoke-distributed    # Distributed API/worker smoke test
+make check-deploy         # Validate deployment environment settings
+make compose-app          # Containerized API, worker, and Postgres
+make postgres-stop        # Stop local Postgres
 ```
 
 For a small VPS or cloud VM deployment, see [Deploy On A Small VPS](docs/deploy-vps.md).
 
-Stop Postgres when you are done:
+## Configuration
 
-```bash
-make postgres-stop
-```
+For local development, copy `.env.example` to `.env` and fill in only the values you need. `make dev`, `make backend`, and `make website` load `.env` automatically.
 
-## Authentication
-
-Set `ORCH_AUTH_TOKEN` to require bearer-token authentication for dashboard API calls and operational endpoints under `/v1` and `/metrics`:
+Authentication:
 
 ```bash
 ORCH_AUTH_TOKEN=replace-with-a-long-random-token make website-postgres
 ```
 
-The dashboard prompts for the token when the API returns `401`. API clients can send either `Authorization: Bearer <token>` or `X-Orchestrator-Token: <token>`. Health and readiness checks remain public for deployment probes.
+`ORCH_AUTH_TOKEN` protects dashboard API calls and operational endpoints under `/v1` and `/metrics`. API clients can send either `Authorization: Bearer <token>` or `X-Orchestrator-Token: <token>`. Health and readiness checks remain public for deployment probes.
 
-For scoped API keys, set `ORCH_API_KEYS` as semicolon-separated entries:
+Scoped API keys are also supported:
 
 ```bash
 ORCH_API_KEYS='dashboard:long-random-token:read+write+metrics;prometheus:metrics-token:metrics'
@@ -102,116 +82,15 @@ ORCH_API_KEYS='dashboard:long-random-token:read+write+metrics;prometheus:metrics
 
 Supported scopes are `read`, `write`, `metrics`, and `admin`. `ORCH_AUTH_TOKEN` remains supported and is treated as an admin key.
 
-## Production Hardening
-
-Postgres mode uses versioned startup migrations recorded in `schema_migrations`. The scheduler also uses a Postgres advisory lock, so multiple API processes can run without each process dispatching the same due workflow.
-
-High-volume collection endpoints use server-side SQL filtering and pagination in Postgres mode for jobs, postings, workflow runs, and results. Notification sends create durable `notification_deliveries` records, and monitor source failures create `monitor.source_health` results for outage or response-shape drift investigation.
-
-Metrics include operational alert signals for dead-letter jobs, expired leases, scheduler lag, and failed notification deliveries. Prometheus exports these as `orchestrator_operational_alert{name=...,severity=...}`.
-
-The dashboard overview surfaces active operational alerts and recent monitor source-health failures so production issues are visible without manually querying result records.
-
-## Demo Workflow
-
-With the backend running on `:8080`, seed and run a fake new-grad monitor:
-
-```bash
-make demo
-```
-
-The demo creates a workflow, triggers `Run now`, stores a normalized posting, records a workflow run, writes a monitor result, and logs a simulated alert. It is designed to show the core system without depending on live job-board data.
-
-## Seed Real Job Monitors
-
-With the backend running on `:8080`, seed recurring monitors for Anduril, Palantir, Stripe, and several high-signal late-stage startups:
-
-```bash
-make seed-job-monitors
-```
-
-The seed script creates hourly `jobs.monitor.new_grad` workflows using the public ATS APIs currently supported by the monitor runner:
-
-- Anduril: Greenhouse board token `andurilindustries`
-- Palantir: Lever account name `palantir`
-- Stripe: Greenhouse board token `stripe`
-- OpenAI: Ashby job board name `openai`
-- Anthropic: Greenhouse board token `anthropic`
-- Databricks: Greenhouse board token `databricks`
-- Ramp: Ashby job board name `ramp`
-- Figma: Greenhouse board token `figma`
-- Plaid: Ashby job board name `plaid`
-- Perplexity: Ashby job board name `perplexity`
-- Scale AI: Greenhouse board token `scaleai`
-- Cursor: Ashby job board name `cursor`
-- xAI: Greenhouse board token `xai`
-- Vercel: Greenhouse board token `vercel`
-- Linear: Ashby job board name `linear`
-- Replit: Ashby job board name `replit`
-- Modal: Ashby job board name `modal`
-- Baseten: Ashby job board name `baseten`
-
-Override the target API or schedule interval when needed:
-
-```bash
-ORCH_MONITOR_URL=http://localhost:8080 ORCH_MONITOR_INTERVAL_SECONDS=86400 make seed-job-monitors
-```
-
-Monitor sources support optional resiliency controls:
-
-```json
-{
-  "rate_limit_ms": 500,
-  "max_retries": 2,
-  "backoff_ms": 250
-}
-```
-
-Additional source types are available for companies outside Greenhouse, Lever, and Ashby:
-
-- Workday: `{ "type": "workday", "tenant": "company", "site": "External", "careers_url": "https://company.wd5.myworkdayjobs.com" }`
-- Custom JSON feeds: `{ "type": "custom", "url": "https://example.com/jobs.json" }`
-
-## System Design
-
-The project is organized around production orchestration concerns:
-
-- **Control plane:** HTTP API for jobs, workflows, workflow runs, results, workers, queue state, postings, and natural-language commands.
-- **Queue and workers:** queued jobs are claimed by embedded or standalone workers, executed through typed executors, retried when possible, and moved to `dead_letter` after attempts are exhausted.
-- **Leasing and recovery:** workers claim jobs with leases; a lease reclaimer requeues stale running jobs or dead-letters them when retry budget is exhausted.
-- **Idempotent scheduling:** scheduled workflow dispatches use `workflow_id + scheduled_for` idempotency keys so duplicate scheduler ticks do not create duplicate workflow runs.
-- **Workflow audit trail:** workflow definitions are separate from workflow runs; runs track trigger type, scheduled timestamp, idempotency key, linked job, and reconciled execution status.
-- **Persistence boundary:** in-memory stores support fast local development, while Postgres stores persist jobs, logs, workflows, workflow runs, postings, and results.
-- **Observability:** the dashboard shows queue depth, runtime metrics, workers, job logs, workflow run history, posting matches, structured results, and alert status. The API also exposes Prometheus-compatible metrics at `/metrics` and live runtime snapshots at `/v1/events`.
-
-For interview prep and architecture review, see [System Design](docs/system-design.md).
-
-## List Filters And Pagination
-
-Collection endpoints keep their original response arrays and also include `pagination` metadata when queried. Use `limit` and `offset`, or `page_size` and `page`, to page results. In Postgres mode, filters and pagination are pushed into SQL for high-volume collections.
-
-Supported filters:
-
-- `GET /v1/jobs`: `status`, `type`, `name`, `submitted_by`, `q`
-- `GET /v1/postings`: `company`, `source`, `location`, `min_score`, `q`
-- `GET /v1/workflow-runs`: `workflow_id`, `job_id`, `status`, `trigger`
-- `GET /v1/results`: `job_id`, `workflow_id`, `type`, `q`
-
-## English Job Requests
-
-Set an OpenAI API key before starting the backend to enable the dashboard's English job request form:
+Natural-language commands:
 
 ```bash
 OPENAI_API_KEY=sk-... make website
 ```
 
-The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default and converts the request into the existing job fields before queueing it.
+The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default. Without `OPENAI_API_KEY`, structured job and workflow submission still works.
 
-The primary dashboard command box sends requests to `POST /v1/commands/natural`. The planner decides whether the request is a one-time job or a recurring workflow. Requests like "run a report now" become queued jobs; requests like "monitor Datadog new-grad SWE roles in NYC every morning" become scheduled workflows.
-
-Email report requests are supported as `report.email` jobs. The worker records recipients, subject, report kind, and schedule in the job logs. Delivery is simulated by default and uses SMTP when configured.
-
-Configure SMTP to send real `report.email` messages:
+Email delivery:
 
 ```bash
 ORCH_SMTP_HOST=smtp.example.com \
@@ -219,239 +98,70 @@ ORCH_SMTP_PORT=587 \
 ORCH_SMTP_USERNAME=apikey-or-user \
 ORCH_SMTP_PASSWORD=secret \
 ORCH_SMTP_FROM=orchestrator@example.com \
+ORCH_DEFAULT_RECIPIENTS=you@example.com \
 make website
 ```
 
-For local development, copy `.env.example` to `.env` and fill in the provider password. `make dev`, `make backend`, and `make website` load `.env` automatically. For Gmail, use an app password rather than your normal Google password:
+If `ORCH_SMTP_HOST` is not set, email delivery is simulated for local development.
+
+## Job Monitoring
+
+Run the deterministic demo while the backend is running on `:8080`:
 
 ```bash
-ORCH_SMTP_HOST=smtp.gmail.com
-ORCH_SMTP_PORT=587
-ORCH_SMTP_USERNAME=you@example.com
-ORCH_SMTP_PASSWORD=your-google-app-password
-ORCH_SMTP_FROM=you@example.com
-ORCH_DEFAULT_RECIPIENTS=you@example.com
+make demo
 ```
 
-If `ORCH_SMTP_HOST` is not set, email delivery remains simulated for local development.
-
-Job monitor workflows can send immediate alerts when new postings are discovered:
-
-```json
-{
-  "notifications": {
-    "mode": "immediate",
-    "recipients": ["you@example.com"],
-    "quiet_hours_start": "22:00",
-    "quiet_hours_end": "07:00",
-    "timezone": "America/New_York",
-    "max_alerts_per_workflow": 5
-  }
-}
-```
-
-Use `"mode": "digest_only"` to suppress immediate monitor alerts and rely on digest workflows instead.
-
-For a personal deployment, set a default recipient once and omit recipients from individual monitor payloads:
+Seed recurring real-company monitors:
 
 ```bash
-ORCH_DEFAULT_RECIPIENTS=you@example.com
+make seed-job-monitors
 ```
 
-Workflow-specific `recipients` still take precedence, which keeps the orchestrator usable for other alerting and reporting workflows.
-
-The preferred nested form is:
-
-```json
-{
-  "notifications": {
-    "mode": "immediate",
-    "recipients": ["you@example.com"]
-  }
-}
-```
-
-Workflow definitions can include ownership metadata. Structured workflow creation accepts either `metadata.owner` or a top-level `owner`; API clients can also send `X-Orchestrator-Owner`. Mutating API actions record durable `audit.event` rows in the results store, queryable with:
+The seed script creates hourly `jobs.monitor.new_grad` workflows using supported public ATS APIs. Override the target API or schedule interval when needed:
 
 ```bash
-curl 'http://localhost:8080/v1/results?type=audit.event'
+ORCH_MONITOR_URL=http://localhost:8080 ORCH_MONITOR_INTERVAL_SECONDS=86400 make seed-job-monitors
 ```
 
-Daily monitor digests can be scheduled as `report.email` workflows with `kind` set to `monitor_digest`; the report reads recent structured monitor results and emails a summary.
+See [Job Types](docs/job-types.md) for supported executors, payload examples, notification settings, and monitor sources.
 
-Example digest report payload:
-
-```json
-{
-  "report": {
-    "recipients": ["you@example.com"],
-    "subject": "Daily job monitor digest",
-    "kind": "monitor_digest",
-    "schedule": "daily"
-  }
-}
-```
-
-## Scheduled Workflows
-
-Recurring workflows are stored separately from individual jobs. The scheduler polls enabled workflow definitions and creates a normal queued job whenever `next_run_at` is due. Each scheduled execution then uses the same worker pool, retries, logs, persistence, and dashboard views as manually submitted jobs.
-
-Each workflow dispatch also creates a durable workflow run record. The workflow definition answers "what should run and when"; the run record answers "which execution happened, why it was triggered, and which job processed it." This keeps recurring workflow history auditable even as jobs, results, and notifications are stored separately.
-
-When `OPENAI_API_KEY` is configured, recurring workflows can also be created from English through the dashboard's Describe Workflow form or the API:
-
-```bash
-curl -X POST http://localhost:8080/v1/workflows/natural \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"Monitor Datadog new-grad software engineering roles in NYC every day"}'
-```
-
-Create a scheduled workflow:
-
-```bash
-curl -X POST http://localhost:8080/v1/workflows \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "datadog-new-grad-monitor",
-    "job_type": "jobs.monitor.new_grad",
-    "max_attempts": 2,
-    "enabled": true,
-    "interval_seconds": 86400,
-    "payload": {
-      "sources": [
-        {
-          "type": "greenhouse",
-          "company": "Datadog",
-          "board_token": "datadog"
-        }
-      ],
-      "keywords": ["new grad", "university", "software engineer"],
-      "excluded_keywords": ["senior", "staff", "principal"],
-      "locations": ["new york", "nyc"],
-      "min_score": 20,
-      "notification_mode": "daily"
-    },
-    "metadata": {
-      "submitted_by": "dashboard"
-    }
-  }'
-```
-
-List scheduled workflows:
-
-```bash
-curl http://localhost:8080/v1/workflows
-```
-
-The scheduler poll interval defaults to 30 seconds and can be configured with `ORCH_SCHEDULER_POLL_SECONDS`. Set `ORCH_SCHEDULER_ENABLED=false` for tests or one-off maintenance processes that should not dispatch due workflows.
-
-## Portfolio Framing
-
-Position the project as a distributed task orchestrator with natural-language job planning and production-style workflows:
-
-> Built a Go-based distributed task orchestrator that converts English requests into structured jobs, runs them through a worker pool with heartbeats and retries, persists state in Postgres, exposes dashboard observability, and supports real workflows such as targeted new-grad SWE job monitoring.
-
-The orchestrator should stay workflow-agnostic. New capabilities should be modeled as job types with explicit payload schemas, executors, logs, and result state. The system can support many recurring tasks over time, such as reports, monitors, notifications, data collection, and personal workflow automation.
-
-The first major workflow is `jobs.monitor.new_grad`: a job type that checks company career pages and ATS providers for new-grad software engineering roles, persists discovered postings, deduplicates seen roles, ranks/filter matches, and emits immediate or daily notifications.
-
-Longer term, the orchestrator should support multiple workflow families on the same platform:
-
-- Recruiting workflows monitor ATS sources, dedupe postings, rank opportunities, and notify on high-signal matches.
-- Finance workflows collect market data, calculate metrics, detect signals, and persist ranked results.
-- Reporting workflows package stored results, failures, alerts, or metrics into scheduled summaries and digests.
-- Alert workflows route important events to email, Slack, SMS, or other notification providers.
-
-The target architecture is:
+## Architecture
 
 ```text
-English request
-  -> planner
-  -> structured job or task graph
-  -> queue
-  -> workers
-  -> persisted results
-  -> notification or report
+Dashboard / API clients
+        |
+        v
+Go HTTP control plane
+        |
+        +--> Jobs store and queue
+        +--> Workflow definitions and run history
+        +--> Posting/result/notification stores
+        +--> Worker registry and metrics
+        |
+        v
+Scheduler creates due jobs
+        |
+        v
+Workers claim jobs with leases
+        |
+        v
+Typed executors store results and send notifications
 ```
 
-Example future requests:
+For interview prep and deeper architecture notes, see [System Design](docs/system-design.md). For project positioning and future direction, see [Project Framing](docs/project-framing.md).
 
-- "Monitor every new-grad SWE opening at Datadog and notify me about NYC matches."
-- "Every morning, find S&P 500 companies with unusual volume and send me a ranked summary."
-- "Email me a daily digest of failed jobs, new postings, and important alerts."
+## API And Dashboard
 
-Optimize for quality and speed over application volume. The system should find roles earlier than broad job boards, filter out low-signal postings, and surface a small set of opportunities worth acting on. The target profile is NYC or NYC-friendly new-grad SWE roles at companies that plausibly clear a strong existing baseline, including top tech companies, finance/fintech, AI/infrastructure/devtools/security startups, and selective remote roles.
+Representative endpoints:
 
-Application support should stay human-in-the-loop. The public project story should be role discovery, ranking, tracking, and unresolved-question notifications, not bulk auto-apply. A later application workflow can create tasks such as `interested`, `needs_answer`, `ready_to_apply`, `applied`, `skipped`, and `interviewing`, while leaving final review and submission to the user.
+- `POST /v1/jobs`: submit an immediate job.
+- `POST /v1/workflows`: create a recurring workflow.
+- `POST /v1/workflows/{id}/run`: manually trigger a workflow.
+- `GET /v1/jobs`, `GET /v1/workflow-runs`, `GET /v1/postings`, `GET /v1/results`: inspect state.
+- `GET /v1/workers`, `GET /v1/metrics`, `GET /metrics`: inspect runtime and Prometheus metrics.
+- `GET /healthz`, `GET /readyz`: process and dependency health checks.
 
-Keep other use cases secondary. Generic demo jobs are useful for testing, and `report.email` supports notifications, but the job-monitoring workflow should be the main demo of the orchestrator's value.
+Collection endpoints support pagination with `limit` and `offset`, or `page_size` and `page`. In Postgres mode, filters and pagination are pushed into SQL for jobs, postings, workflow runs, and results.
 
-Do not hard-code the product around one niche. The job-monitoring flow should be implemented as a reusable pattern: source adapters, normalized results, deduplication, ranking/filtering, notification, scheduling, and dashboard visibility. Future workflows should be able to reuse the same orchestration primitives.
-
-Suggested platform steps after the current monitor workflow:
-
-1. Add a command preview and confirmation step before natural-language commands create jobs or workflows.
-2. Add task-graph support for multi-step workflows such as fetch data -> analyze -> rank -> report -> notify.
-3. Add a production notification provider such as Resend or SES alongside simulated and SMTP delivery.
-4. Add finance workflows as a second demo family once task graphs are available.
-5. Add authentication and per-user workspace isolation before exposing a hosted demo publicly.
-
-Example Greenhouse monitor payload:
-
-```json
-{
-  "name": "datadog-new-grad-monitor",
-  "type": "jobs.monitor.new_grad",
-  "max_attempts": 2,
-  "payload": {
-    "sources": [
-      {
-        "type": "greenhouse",
-        "company": "Datadog",
-        "board_token": "datadog"
-      }
-    ],
-    "keywords": ["new grad", "university", "software engineer"],
-    "excluded_keywords": ["senior", "staff", "principal"],
-    "locations": ["new york", "nyc"],
-    "min_score": 20,
-    "notifications": {
-      "mode": "immediate",
-      "recipients": ["you@example.com"]
-    }
-  },
-  "metadata": {
-    "submitted_by": "dashboard"
-  }
-}
-```
-
-Lever sources are also supported:
-
-```json
-{
-  "type": "lever",
-  "company": "ExampleCo",
-  "account_name": "exampleco"
-}
-```
-
-Ashby sources are also supported:
-
-```json
-{
-  "type": "ashby",
-  "company": "ExampleCo",
-  "job_board_name": "exampleco"
-}
-```
-
-## Checks
-
-Run backend tests and build the frontend:
-
-```bash
-make test
-```
-
-Backend-specific API docs are in `backend/README.md`. Frontend-specific notes are in `frontend/README.md`.
+Backend-specific API notes are in [backend/README.md](backend/README.md). Frontend-specific notes are in [frontend/README.md](frontend/README.md).
