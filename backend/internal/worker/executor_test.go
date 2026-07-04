@@ -51,6 +51,33 @@ func TestSimulatedExecutorLogsEmailReportDetails(t *testing.T) {
 	}
 }
 
+func TestSimulatedExecutorEmailReportUsesDefaultRecipients(t *testing.T) {
+	sender := &recordingSender{}
+	executor := NewSimulatedExecutor(slog.New(slog.NewTextHandler(io.Discard, nil)), nil, nil, sender)
+	executor.SetDefaultRecipients([]string{"default@example.com"})
+	job := &jobs.Job{
+		ID:   "job-default-recipient",
+		Type: "report.email",
+		Payload: map[string]any{
+			"duration_ms": 1,
+			"report": map[string]any{
+				"subject": "Default recipient report",
+				"kind":    "job_summary",
+			},
+		},
+	}
+
+	if err := executor.Execute(t.Context(), job, func(string) {}); err != nil {
+		t.Fatalf("execute email report job: %v", err)
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("expected one email, got %d", len(sender.messages))
+	}
+	if got := sender.messages[0].Recipients; len(got) != 1 || got[0] != "default@example.com" {
+		t.Fatalf("expected default recipient, got %#v", got)
+	}
+}
+
 func TestSimulatedExecutorRunsNewGradMonitor(t *testing.T) {
 	postingStore := postings.NewMemoryStore()
 	resultStore := results.NewMemoryStore()

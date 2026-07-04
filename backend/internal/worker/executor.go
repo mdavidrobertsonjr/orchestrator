@@ -474,6 +474,9 @@ func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, job *jobs.Job, 
 		logf("email report payload could not be decoded")
 		return err
 	}
+	if len(parsed.Recipients) == 0 {
+		parsed.Recipients = e.defaultRecipients
+	}
 
 	body := reportBody(parsed.Kind)
 	if parsed.Kind == "monitor_digest" {
