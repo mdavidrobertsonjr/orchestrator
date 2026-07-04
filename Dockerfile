@@ -15,6 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/worker ./cmd/worker
 
 FROM alpine:3.22 AS api
 WORKDIR /app/backend
+RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend-build /out/api /app/backend/api
 COPY --from=frontend-build /src/frontend/dist /app/frontend/dist
 ENV ORCH_ADDR=:8080
@@ -24,5 +25,6 @@ CMD ["/app/backend/api"]
 
 FROM alpine:3.22 AS worker
 WORKDIR /app/backend
+RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend-build /out/worker /app/backend/worker
 CMD ["/app/backend/worker"]

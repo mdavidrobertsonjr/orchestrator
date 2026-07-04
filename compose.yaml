@@ -3,13 +3,24 @@ services:
     build:
       context: .
       target: api
+    restart: unless-stopped
     environment:
       ORCH_ADDR: ":8080"
       ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@postgres:5432/orchestrator?sslmode=disable
       ORCH_EMBEDDED_WORKERS: "false"
       ORCH_STATIC_DIR: /app/frontend/dist
+      ORCH_AUTH_TOKEN: "${ORCH_AUTH_TOKEN:-}"
+      ORCH_API_KEYS: "${ORCH_API_KEYS:-}"
+      ORCH_DEFAULT_RECIPIENTS: "${ORCH_DEFAULT_RECIPIENTS:-}"
+      ORCH_SMTP_HOST: "${ORCH_SMTP_HOST:-}"
+      ORCH_SMTP_PORT: "${ORCH_SMTP_PORT:-587}"
+      ORCH_SMTP_USERNAME: "${ORCH_SMTP_USERNAME:-}"
+      ORCH_SMTP_PASSWORD: "${ORCH_SMTP_PASSWORD:-}"
+      ORCH_SMTP_FROM: "${ORCH_SMTP_FROM:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ORCH_OPENAI_MODEL: "${ORCH_OPENAI_MODEL:-gpt-5.4-nano}"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,10 +36,17 @@ services:
     build:
       context: .
       target: worker
+    restart: unless-stopped
     environment:
       ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@postgres:5432/orchestrator?sslmode=disable
       ORCH_WORKERS: "1"
       ORCH_WORKER_ID: compose-worker
+      ORCH_DEFAULT_RECIPIENTS: "${ORCH_DEFAULT_RECIPIENTS:-}"
+      ORCH_SMTP_HOST: "${ORCH_SMTP_HOST:-}"
+      ORCH_SMTP_PORT: "${ORCH_SMTP_PORT:-587}"
+      ORCH_SMTP_USERNAME: "${ORCH_SMTP_USERNAME:-}"
+      ORCH_SMTP_PASSWORD: "${ORCH_SMTP_PASSWORD:-}"
+      ORCH_SMTP_FROM: "${ORCH_SMTP_FROM:-}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,12 +55,13 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: orchestrator
       POSTGRES_USER: orchestrator
       POSTGRES_PASSWORD: orchestrator
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

@@ -2,6 +2,10 @@
 set -euo pipefail
 
 base_url="${ORCH_DEMO_URL:-http://localhost:8080}"
+curl_auth=()
+if [[ -n "${ORCH_AUTH_TOKEN:-}" ]]; then
+  curl_auth=(-H "Authorization: Bearer ${ORCH_AUTH_TOKEN}")
+fi
 
 payload='{
   "name": "demo-new-grad-monitor",
@@ -38,7 +42,7 @@ payload='{
 }'
 
 echo "Creating fake job-monitor workflow against ${base_url}"
-workflow="$(curl -fsS -X POST "${base_url}/v1/workflows" -H "Content-Type: application/json" -d "${payload}")"
+workflow="$(curl -fsS -X POST "${base_url}/v1/workflows" "${curl_auth[@]}" -H "Content-Type: application/json" -d "${payload}")"
 echo "${workflow}"
 
 workflow_id="$(printf "%s" "${workflow}" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
@@ -48,15 +52,15 @@ if [[ -z "${workflow_id}" ]]; then
 fi
 
 echo "Running workflow ${workflow_id} now"
-curl -fsS -X POST "${base_url}/v1/workflows/${workflow_id}/run"
+curl -fsS -X POST "${base_url}/v1/workflows/${workflow_id}/run" "${curl_auth[@]}"
 echo
 
 sleep 2
 
 echo "Postings:"
-curl -fsS "${base_url}/v1/postings"
+curl -fsS "${base_url}/v1/postings" "${curl_auth[@]}"
 echo
 
 echo "Workflow runs:"
-curl -fsS "${base_url}/v1/workflow-runs?workflow_id=${workflow_id}"
+curl -fsS "${base_url}/v1/workflow-runs?workflow_id=${workflow_id}" "${curl_auth[@]}"
 echo

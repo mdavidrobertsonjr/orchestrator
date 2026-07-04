@@ -4,6 +4,10 @@ set -euo pipefail
 base_url="${ORCH_MONITOR_URL:-http://localhost:8080}"
 interval_seconds="${ORCH_MONITOR_INTERVAL_SECONDS:-3600}"
 default_locations='["new york", "nyc", "san francisco", "seattle", "remote"]'
+curl_auth=()
+if [[ -n "${ORCH_AUTH_TOKEN:-}" ]]; then
+  curl_auth=(-H "Authorization: Bearer ${ORCH_AUTH_TOKEN}")
+fi
 
 create_monitor() {
   local slug="$1"
@@ -44,6 +48,7 @@ create_monitor() {
 
   echo "Creating ${name} against ${base_url}"
   response="$(curl -fsS -X POST "${base_url}/v1/workflows" \
+    "${curl_auth[@]}" \
     -H "Content-Type: application/json" \
     -d "${payload}")"
   echo "${response}"
