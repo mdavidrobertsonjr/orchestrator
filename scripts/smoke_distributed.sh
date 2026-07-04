@@ -2,11 +2,17 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-POSTGRES_URL="${ORCH_DATABASE_URL:-postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable}"
 API_ADDR="${ORCH_ADDR:-:18080}"
 API_PORT="${API_ADDR##*:}"
 API_URL="http://localhost:${API_PORT}"
 GOCACHE="${GOCACHE:-/tmp/go-build-cache}"
+SMOKE_DB=""
+if [[ -n "${ORCH_DATABASE_URL:-}" ]]; then
+  POSTGRES_URL="${ORCH_DATABASE_URL}"
+else
+  SMOKE_DB="orchestrator_smoke_$$_${RANDOM}"
+  POSTGRES_URL="postgres://orchestrator:orchestrator@localhost:5432/${SMOKE_DB}?sslmode=disable"
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required for distributed smoke tests" >&2
@@ -20,15 +26,21 @@ cleanup() {
   if [[ -n "${WORKER_PID:-}" ]]; then
     kill "${WORKER_PID}" 2>/dev/null || true
   fi
+  if [[ -n "${SMOKE_DB}" ]]; then
+    docker compose exec -T postgres dropdb -U orchestrator --if-exists "${SMOKE_DB}" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
 cd "${ROOT_DIR}"
 docker compose up -d postgres
+if [[ -n "${SMOKE_DB}" ]]; then
+  docker compose exec -T postgres createdb -U orchestrator "${SMOKE_DB}"
+fi
 
 (
   cd backend
-  env GOCACHE="${GOCACHE}" ORCH_ADDR="${API_ADDR}" ORCH_DATABASE_URL="${POSTGRES_URL}" ORCH_EMBEDDED_WORKERS=false go run ./cmd/api
+  env GOCACHE="${GOCACHE}" ORCH_ADDR="${API_ADDR}" ORCH_DATABASE_URL="${POSTGRES_URL}" ORCH_EMBEDDED_WORKERS=false ORCH_SCHEDULER_ENABLED=false go run ./cmd/api
 ) &
 API_PID=$!
 

@@ -116,18 +116,22 @@ func main() {
 		logger.Info("embedded workers disabled")
 	}
 
-	schedulerLock, closeSchedulerLock, err := buildSchedulerLock(ctx, cfg, logger)
-	if err != nil {
-		logger.Error("failed to initialize scheduler lock", "error", err)
-		return
-	}
-	defer closeSchedulerLock()
+	if cfg.SchedulerEnabled {
+		schedulerLock, closeSchedulerLock, err := buildSchedulerLock(ctx, cfg, logger)
+		if err != nil {
+			logger.Error("failed to initialize scheduler lock", "error", err)
+			return
+		}
+		defer closeSchedulerLock()
 
-	scheduled := scheduler.NewWithRuns(scheduler.Config{
-		PollInterval: cfg.SchedulerPollInterval,
-		Lock:         schedulerLock,
-	}, workflowStore, runStore, store, queue, logger)
-	scheduled.Start(ctx)
+		scheduled := scheduler.NewWithRuns(scheduler.Config{
+			PollInterval: cfg.SchedulerPollInterval,
+			Lock:         schedulerLock,
+		}, workflowStore, runStore, store, queue, logger)
+		scheduled.Start(ctx)
+	} else {
+		logger.Info("scheduler disabled")
+	}
 
 	handler := api.NewRouter(api.Config{
 		Queue:         queue,
@@ -189,6 +193,7 @@ type config struct {
 	StaticDir             string
 	OpenAIAPIKey          string
 	OpenAIModel           string
+	SchedulerEnabled      bool
 	SchedulerPollInterval time.Duration
 	SMTPHost              string
 	SMTPPort              int
@@ -213,6 +218,7 @@ func configFromEnv() config {
 		StaticDir:             envOptionalString("ORCH_STATIC_DIR", "../frontend/dist"),
 		OpenAIAPIKey:          os.Getenv("OPENAI_API_KEY"),
 		OpenAIModel:           envString("ORCH_OPENAI_MODEL", "gpt-5.4-nano"),
+		SchedulerEnabled:      envBool("ORCH_SCHEDULER_ENABLED", true),
 		SchedulerPollInterval: time.Duration(envInt("ORCH_SCHEDULER_POLL_SECONDS", 30)) * time.Second,
 		SMTPHost:              os.Getenv("ORCH_SMTP_HOST"),
 		SMTPPort:              envInt("ORCH_SMTP_PORT", 587),
