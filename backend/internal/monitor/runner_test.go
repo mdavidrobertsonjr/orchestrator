@@ -110,6 +110,47 @@ func TestRunnerDedupesRepeatedMatches(t *testing.T) {
 	}
 }
 
+func TestRunnerRejectsLocationOnlyMatchesWhenKeywordsConfigured(t *testing.T) {
+	store := postings.NewMemoryStore()
+	runner := NewRunner(store, nil)
+
+	result, err := runner.Run(t.Context(), map[string]any{
+		"sources": []map[string]any{
+			{
+				"type": "fake",
+				"name": "fixture",
+				"postings": []map[string]any{
+					{
+						"company":   "Stripe",
+						"title":     "Account Executive",
+						"url":       "https://example.com/stripe/account-executive",
+						"location":  "New York, NY",
+						"source":    "greenhouse",
+						"source_id": "stripe-sales-1",
+					},
+				},
+			},
+		},
+		"keywords":  []string{"new grad", "software engineer"},
+		"locations": []string{"new york"},
+		"min_score": float64(20),
+	}, nil)
+	if err != nil {
+		t.Fatalf("run monitor: %v", err)
+	}
+	if result.Scanned != 1 || result.Matched != 0 || result.Created != 0 || result.Updated != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	stored, err := store.List()
+	if err != nil {
+		t.Fatalf("list postings: %v", err)
+	}
+	if len(stored) != 0 {
+		t.Fatalf("expected no stored postings, got %d", len(stored))
+	}
+}
+
 func containsLog(logs []string, expected string) bool {
 	for _, log := range logs {
 		if log == expected {

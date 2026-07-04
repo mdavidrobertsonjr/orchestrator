@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Boxes,
@@ -40,6 +40,7 @@ import {
   JobStatus,
   OperationalAlert,
   Posting,
+  PostingFilters,
   QueueStatus,
   Result,
   retryJob,
@@ -134,6 +135,24 @@ type WorkflowFormState = {
   payload: string;
 };
 
+type PostingFilterState = {
+  q: string;
+  company: string;
+  source: string;
+  location: string;
+  minScore: number;
+  pageSize: number;
+};
+
+const defaultPostingFilters: PostingFilterState = {
+  q: "",
+  company: "",
+  source: "",
+  location: "",
+  minScore: 40,
+  pageSize: 200
+};
+
 const initialWorkflowForm: WorkflowFormState = {
   name: "datadog-new-grad-monitor",
   jobType: "jobs.monitor.new_grad",
@@ -152,7 +171,7 @@ const initialWorkflowForm: WorkflowFormState = {
       keywords: ["new grad", "university", "software engineer"],
       excluded_keywords: ["senior", "staff", "principal"],
       locations: ["new york", "nyc"],
-      min_score: 20,
+      min_score: 40,
       notification_mode: "daily"
     },
     null,
@@ -171,6 +190,8 @@ export function App() {
   const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
   const [form, setForm] = useState<SubmitState>(initialSubmitState);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
+  const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
+  const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
   const [commandPrompt, setCommandPrompt] = useState(
     "Monitor Datadog new-grad software engineering roles in NYC every day"
   );
@@ -208,14 +229,26 @@ export function App() {
       running: jobs.filter((job) => job.status === "running").length,
       succeeded: jobs.filter((job) => job.status === "succeeded").length,
       failed: jobs.filter((job) => job.status === "failed").length,
-      postings: postings.length,
+      postings: metrics?.postings.total ?? postings.length,
       results: results.length,
       workflows: workflows.length,
       activeWorkers: workers.filter((worker) => worker.status !== "stopped").length
     };
-  }, [jobs, postings, results, workflows, workers]);
+  }, [jobs, metrics?.postings.total, postings, results, workflows, workers]);
 
-  async function refresh() {
+  const postingQuery = useMemo<PostingFilters>(
+    () => ({
+      q: postingFilters.q,
+      company: postingFilters.company,
+      source: postingFilters.source,
+      location: postingFilters.location,
+      minScore: postingFilters.minScore,
+      pageSize: postingFilters.pageSize
+    }),
+    [postingFilters]
+  );
+
+  const refresh = useCallback(async () => {
     try {
       const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults] =
         await Promise.all([
@@ -224,7 +257,7 @@ export function App() {
           fetchWorkers(),
           fetchQueue(),
           fetchMetrics(),
-          fetchPostings(),
+          fetchPostings(postingQuery),
           fetchWorkflows(),
           fetchWorkflowRuns(),
           fetchResults()
@@ -251,7 +284,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [postingQuery]);
 
   useEffect(() => {
     void refresh();
@@ -274,7 +307,17 @@ export function App() {
         clearInterval(fallback);
       }
     };
-  }, []);
+  }, [refresh]);
+
+  function handlePostingFiltersSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPostingFilters(postingFilterForm);
+  }
+
+  function handlePostingFiltersReset() {
+    setPostingFilterForm(defaultPostingFilters);
+    setPostingFilters(defaultPostingFilters);
+  }
 
   function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -486,7 +529,16 @@ export function App() {
       </section>
     ),
     postings: (
-      <Panel title="Discovered Postings" subtitle={`${postings.length} monitor matches`}>
+      <Panel
+        title="Discovered Postings"
+        subtitle={`${postings.length} shown of ${metrics?.postings.total ?? postings.length} total`}
+      >
+        <PostingFilterBar
+          filters={postingFilterForm}
+          onChange={setPostingFilterForm}
+          onReset={handlePostingFiltersReset}
+          onSubmit={handlePostingFiltersSubmit}
+        />
         <PostingsTable postings={postings} loading={loading} />
       </Panel>
     ),
@@ -1188,6 +1240,90 @@ function WorkersTable({ workers, loading }: { workers: Worker[]; loading: boolea
   );
 }
 
+function PostingFilterBar({
+  filters,
+  onChange,
+  onReset,
+  onSubmit
+}: {
+  filters: PostingFilterState;
+  onChange: (filters: PostingFilterState) => void;
+  onReset: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="posting-filters" onSubmit={onSubmit}>
+      <label>
+        <span>Search</span>
+        <input
+          value={filters.q}
+          onChange={(event) => onChange({ ...filters, q: event.target.value })}
+          placeholder="role, company, location"
+        />
+      </label>
+      <label>
+        <span>Company</span>
+        <input
+          value={filters.company}
+          onChange={(event) => onChange({ ...filters, company: event.target.value })}
+          placeholder="OpenAI"
+        />
+      </label>
+      <label>
+        <span>Location</span>
+        <input
+          value={filters.location}
+          onChange={(event) => onChange({ ...filters, location: event.target.value })}
+          placeholder="New York"
+        />
+      </label>
+      <label>
+        <span>Source</span>
+        <select value={filters.source} onChange={(event) => onChange({ ...filters, source: event.target.value })}>
+          <option value="">Any</option>
+          <option value="ashby">Ashby</option>
+          <option value="greenhouse">Greenhouse</option>
+          <option value="lever">Lever</option>
+          <option value="workday">Workday</option>
+          <option value="fake">Fake</option>
+        </select>
+      </label>
+      <label>
+        <span>Min score</span>
+        <select
+          value={filters.minScore}
+          onChange={(event) => onChange({ ...filters, minScore: Number(event.target.value) })}
+        >
+          <option value={40}>40+</option>
+          <option value={60}>60+</option>
+          <option value={80}>80+</option>
+          <option value={20}>20+</option>
+          <option value={0}>All</option>
+        </select>
+      </label>
+      <label>
+        <span>Limit</span>
+        <select
+          value={filters.pageSize}
+          onChange={(event) => onChange({ ...filters, pageSize: Number(event.target.value) })}
+        >
+          <option value={100}>100</option>
+          <option value={200}>200</option>
+          <option value={500}>500</option>
+        </select>
+      </label>
+      <div className="posting-filter-actions">
+        <button className="table-action" type="button" onClick={onReset}>
+          Reset
+        </button>
+        <button className="primary-button" type="submit">
+          Apply
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PostingsTable({ postings, loading }: { postings: Posting[]; loading: boolean }) {
   if (loading) {
     return <EmptyState label="Loading postings" />;
@@ -1205,30 +1341,47 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
             <th>Location</th>
             <th>Source</th>
             <th>Score</th>
+            <th>Reasons</th>
             <th>Matched</th>
           </tr>
         </thead>
         <tbody>
-          {postings.map((posting) => (
-            <tr key={posting.id}>
-              <td>
-                <strong>
-                  <a className="posting-link" href={posting.url} target="_blank" rel="noreferrer">
-                    {posting.title}
-                    <ExternalLink size={13} />
-                  </a>
-                </strong>
-                <span>{posting.company}</span>
-              </td>
-              <td>{posting.location || "-"}</td>
-              <td>
-                <strong>{posting.source}</strong>
-                <span>{posting.source_id || posting.id.slice(0, 12)}</span>
-              </td>
-              <td>{posting.match_score ?? 0}</td>
-              <td>{relativeTime(posting.matched_at ?? posting.first_seen_at)}</td>
-            </tr>
-          ))}
+          {postings.map((posting) => {
+            const reasons = posting.match_reasons ?? [];
+            return (
+              <tr key={posting.id}>
+                <td>
+                  <strong>
+                    <a className="posting-link" href={posting.url} target="_blank" rel="noreferrer">
+                      {posting.title}
+                      <ExternalLink size={13} />
+                    </a>
+                  </strong>
+                  <span>{posting.company}</span>
+                </td>
+                <td>{posting.location || "-"}</td>
+                <td>
+                  <strong>{posting.source}</strong>
+                  <span>{posting.source_id || posting.id.slice(0, 12)}</span>
+                </td>
+                <td>{posting.match_score ?? 0}</td>
+                <td>
+                  {reasons.length > 0 ? (
+                    <div className="reason-list">
+                      {reasons.slice(0, 4).map((reason) => (
+                        <span className="reason-pill" key={reason}>
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td>{relativeTime(posting.matched_at ?? posting.first_seen_at)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

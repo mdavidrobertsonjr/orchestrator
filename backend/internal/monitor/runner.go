@@ -215,6 +215,7 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 
 	score := 0
 	var reasons []string
+	keywordMatched := false
 	for _, company := range payload.Companies {
 		company = strings.ToLower(strings.TrimSpace(company))
 		if company != "" && strings.Contains(strings.ToLower(candidate.Company), company) {
@@ -225,9 +226,13 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 	for _, keyword := range payload.Keywords {
 		keyword = strings.ToLower(strings.TrimSpace(keyword))
 		if keyword != "" && strings.Contains(text, keyword) {
+			keywordMatched = true
 			score += 20
 			reasons = append(reasons, "keyword:"+keyword)
 		}
+	}
+	if hasFilters(payload.Keywords) && !keywordMatched {
+		return 0, nil
 	}
 	for _, location := range payload.Locations {
 		location = strings.ToLower(strings.TrimSpace(location))
@@ -242,6 +247,15 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 		reasons = append(reasons, "unfiltered")
 	}
 	return score, reasons
+}
+
+func hasFilters(filters []string) bool {
+	for _, filter := range filters {
+		if strings.TrimSpace(filter) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceName(config SourceConfig) string {

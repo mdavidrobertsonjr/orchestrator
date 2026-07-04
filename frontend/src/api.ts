@@ -137,6 +137,15 @@ export type Posting = {
   metadata?: Record<string, string>;
 };
 
+export type PostingFilters = {
+  q?: string;
+  company?: string;
+  source?: string;
+  location?: string;
+  minScore?: number;
+  pageSize?: number;
+};
+
 export type Workflow = {
   id: string;
   name: string;
@@ -224,9 +233,28 @@ export async function fetchWorkers(): Promise<Worker[]> {
   return response.workers;
 }
 
-export async function fetchPostings(): Promise<Posting[]> {
-  const response = await request<{ postings: Posting[] }>("/v1/postings");
+export async function fetchPostings(filters: PostingFilters = {}): Promise<Posting[]> {
+  const params = new URLSearchParams();
+  appendQuery(params, "q", filters.q);
+  appendQuery(params, "company", filters.company);
+  appendQuery(params, "source", filters.source);
+  appendQuery(params, "location", filters.location);
+  if (filters.minScore && filters.minScore > 0) {
+    params.set("min_score", String(filters.minScore));
+  }
+  if (filters.pageSize && filters.pageSize > 0) {
+    params.set("page_size", String(filters.pageSize));
+  }
+  const query = params.toString();
+  const response = await request<{ postings: Posting[] }>(`/v1/postings${query ? `?${query}` : ""}`);
   return response.postings;
+}
+
+function appendQuery(params: URLSearchParams, key: string, value?: string): void {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    params.set(key, trimmed);
+  }
 }
 
 export async function fetchWorkflows(): Promise<Workflow[]> {

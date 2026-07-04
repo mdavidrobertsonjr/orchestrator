@@ -444,6 +444,45 @@ td span {
   color: #1769aa;
 }
 
+.posting-filters {
+  align-items: end;
+  border-bottom: 1px solid #edf1f5;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1.2fr) repeat(5, minmax(120px, 1fr)) auto;
+  padding: 14px 18px;
+}
+
+.posting-filters label {
+  min-width: 0;
+}
+
+.posting-filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 360px;
+}
+
+.reason-pill {
+  background: #edf6ff;
+  border: 1px solid #c9dff4;
+  border-radius: 999px;
+  color: #145da0;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 0;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
 .table-action {
   align-items: center;
   background: #ffffff;
@@ -961,7 +1000,8 @@ textarea {
   .summary-grid,
   .field-row,
   .detail-grid,
-  .metrics-panel {
+  .metrics-panel,
+  .posting-filters {
     grid-template-columns: 1fr;
   }
 
