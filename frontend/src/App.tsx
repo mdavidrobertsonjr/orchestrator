@@ -149,7 +149,7 @@ const defaultPostingFilters: PostingFilterState = {
   company: "",
   source: "",
   location: "",
-  minScore: 40,
+  minScore: 60,
   pageSize: 200
 };
 
@@ -1294,9 +1294,9 @@ function PostingFilterBar({
           value={filters.minScore}
           onChange={(event) => onChange({ ...filters, minScore: Number(event.target.value) })}
         >
-          <option value={40}>40+</option>
           <option value={60}>60+</option>
           <option value={80}>80+</option>
+          <option value={40}>40+</option>
           <option value={20}>20+</option>
           <option value={0}>All</option>
         </select>
