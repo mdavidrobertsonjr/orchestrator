@@ -72,6 +72,7 @@ make smoke-postgres
 Run the containerized API, worker, and Postgres deployment shape:
 
 ```bash
+make check-deploy
 make compose-app
 ```
 
@@ -226,10 +227,10 @@ For local development, copy `.env.example` to `.env` and fill in the provider pa
 ```bash
 ORCH_SMTP_HOST=smtp.gmail.com
 ORCH_SMTP_PORT=587
-ORCH_SMTP_USERNAME=mdavidrobertsonjr@gmail.com
+ORCH_SMTP_USERNAME=you@example.com
 ORCH_SMTP_PASSWORD=your-google-app-password
-ORCH_SMTP_FROM=mdavidrobertsonjr@gmail.com
-ORCH_DEFAULT_RECIPIENTS=mdavidrobertsonjr@gmail.com
+ORCH_SMTP_FROM=you@example.com
+ORCH_DEFAULT_RECIPIENTS=you@example.com
 ```
 
 If `ORCH_SMTP_HOST` is not set, email delivery remains simulated for local development.
@@ -342,9 +343,9 @@ List scheduled workflows:
 curl http://localhost:8080/v1/workflows
 ```
 
-The scheduler poll interval defaults to 30 seconds and can be configured with `ORCH_SCHEDULER_POLL_SECONDS`.
+The scheduler poll interval defaults to 30 seconds and can be configured with `ORCH_SCHEDULER_POLL_SECONDS`. Set `ORCH_SCHEDULER_ENABLED=false` for tests or one-off maintenance processes that should not dispatch due workflows.
 
-## Product Direction
+## Portfolio Framing
 
 Position the project as a distributed task orchestrator with natural-language job planning and production-style workflows:
 
@@ -352,7 +353,7 @@ Position the project as a distributed task orchestrator with natural-language jo
 
 The orchestrator should stay workflow-agnostic. New capabilities should be modeled as job types with explicit payload schemas, executors, logs, and result state. The system can support many recurring tasks over time, such as reports, monitors, notifications, data collection, and personal workflow automation.
 
-The first major workflow should be `jobs.monitor.new_grad`: a job type that checks company career pages and ATS providers for new-grad software engineering roles, persists discovered postings, deduplicates seen roles, ranks/filter matches, and emits immediate or daily notifications.
+The first major workflow is `jobs.monitor.new_grad`: a job type that checks company career pages and ATS providers for new-grad software engineering roles, persists discovered postings, deduplicates seen roles, ranks/filter matches, and emits immediate or daily notifications.
 
 Longer term, the orchestrator should support multiple workflow families on the same platform:
 
@@ -383,25 +384,11 @@ Optimize for quality and speed over application volume. The system should find r
 
 Application support should stay human-in-the-loop. The public project story should be role discovery, ranking, tracking, and unresolved-question notifications, not bulk auto-apply. A later application workflow can create tasks such as `interested`, `needs_answer`, `ready_to_apply`, `applied`, `skipped`, and `interviewing`, while leaving final review and submission to the user.
 
-Suggested implementation order for the job-monitoring workflow:
-
-1. Add a posting model and store under `backend/internal/postings`.
-2. Add a monitor job payload with companies, sources, keywords, excluded keywords, locations, and notification mode.
-3. Implement source adapters for a fake/test source first, then Greenhouse and Lever-style public boards.
-4. Normalize postings into one schema: company, title, URL, location, source, and posted/discovered timestamps.
-5. Persist seen postings so repeat runs only alert on new matches.
-6. Extend the worker executor with a real `jobs.monitor.new_grad` path.
-7. Add ranking based on location fit, company quality, role fit, new-grad confidence, and whether the role is worth acting on quickly.
-8. Show discovered postings, monitor runs, failures, rankings, and alert history in the dashboard.
-9. Add scheduling and backoff so monitors can run daily or near real-time without manual submission.
-10. Add an application task queue for tracking interest, unresolved free-response questions, submitted applications, and skipped roles.
-11. Replace simulated email with a real notification provider when the workflow is stable.
-
 Keep other use cases secondary. Generic demo jobs are useful for testing, and `report.email` supports notifications, but the job-monitoring workflow should be the main demo of the orchestrator's value.
 
 Do not hard-code the product around one niche. The job-monitoring flow should be implemented as a reusable pattern: source adapters, normalized results, deduplication, ranking/filtering, notification, scheduling, and dashboard visibility. Future workflows should be able to reuse the same orchestration primitives.
 
-Suggested platform steps after the first monitor workflow:
+Suggested platform steps after the current monitor workflow:
 
 1. Add a command preview and confirmation step before natural-language commands create jobs or workflows.
 2. Add task-graph support for multi-step workflows such as fetch data -> analyze -> rank -> report -> notify.

@@ -28,9 +28,21 @@ ORCH_SMTP_PORT=587
 ORCH_SMTP_USERNAME=you@example.com
 ORCH_SMTP_PASSWORD=your-app-password
 ORCH_SMTP_FROM=you@example.com
+
+# Optional: enables natural-language commands in the dashboard.
+OPENAI_API_KEY=
+ORCH_OPENAI_MODEL=gpt-5.4-nano
 ```
 
 Keep `ORCH_AUTH_TOKEN` long and random. The API uses it as the bearer token for dashboard API calls and operational endpoints.
+
+For Gmail, enable 2-Step Verification on your Google account and create an app password. Put that 16-character app password in `ORCH_SMTP_PASSWORD`; do not use your normal Google password.
+
+Validate the deployment settings before starting:
+
+```bash
+make check-deploy
+```
 
 ## Start
 
@@ -61,8 +73,13 @@ curl -H "Authorization: Bearer ${ORCH_AUTH_TOKEN}" http://127.0.0.1:8080/v1/metr
 Seed monitors:
 
 ```bash
+set -a
+source .env
+set +a
 ORCH_MONITOR_URL=http://127.0.0.1:8080 make seed-job-monitors
 ```
+
+The seed script uses `ORCH_AUTH_TOKEN` when it is set.
 
 ## Reverse Proxy And TLS
 
@@ -87,6 +104,8 @@ docker compose --profile app up --build -d
 ```
 
 Workflows, postings, runs, results, notification deliveries, and audit events persist in Postgres. Startup migrations are recorded in `schema_migrations`. The scheduler resumes after restart and uses a Postgres advisory lock so only one API instance dispatches due workflows at a time.
+
+Leave `ORCH_SCHEDULER_ENABLED` unset in normal deployments. Set it to `false` only for maintenance or smoke-test processes that should not dispatch due workflows.
 
 ## Backups
 

@@ -26,8 +26,8 @@ VITE_API_BASE_URL=http://localhost:8080 npm run dev
 
 ## Current Views
 
-- Summary metrics for queued, running, succeeded, failed, and active workers.
-- Jobs table with status and attempts.
+- Overview metrics, operational alerts, queue health, and source-health failures.
+- Jobs table with status, attempts, cancel/retry actions, and detail view.
+- Discovered postings, structured results, scheduled workflows, and workflow run history.
 - Workers table with heartbeat and current job.
-- Queue capacity panel.
-- Submit job form for simulated workloads.
+- Command form for natural-language jobs/workflows plus structured job and workflow forms.

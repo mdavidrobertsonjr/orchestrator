@@ -1,8 +1,6 @@
 # Distributed Job Orchestrator
 
-This repository is the backend control-plane scaffold for a distributed job orchestration platform. The current MVP is intentionally small: an HTTP API accepts jobs, stores state in memory, queues work, and runs jobs asynchronously through an embedded worker pool.
-
-The structure is designed so the in-memory queue and store can later be replaced with Redis and Postgres without changing the public API shape.
+This repository is the backend control plane for a distributed job orchestration platform. The API accepts jobs and recurring workflows, persists state in memory or Postgres, queues work, and runs jobs asynchronously through embedded or standalone worker processes.
 
 ## Current Features
 
@@ -11,7 +9,7 @@ The structure is designed so the in-memory queue and store can later be replaced
 - Optional Postgres-backed job store with automatic schema setup.
 - Bounded in-memory queue.
 - Embedded worker polling loop with configurable worker count.
-- Simulated email report job type for reporting workflows.
+- Email report job type with simulated delivery by default and SMTP delivery when configured.
 - In-memory worker registry with heartbeat timestamps and current job tracking.
 - Simulated executor for deterministic local development.
 - Basic retries through `max_attempts`.
@@ -50,7 +48,7 @@ OPENAI_API_KEY=sk-... ORCH_OPENAI_MODEL=gpt-5.4-nano go run ./cmd/api
 
 If `OPENAI_API_KEY` is not set, structured job submission still works and `/v1/jobs/natural` returns `503`.
 
-English email-report requests map to `report.email`. The worker logs what would be sent, including recipients, subject, kind, and schedule, but does not deliver real email yet.
+English email-report requests map to `report.email`. The worker records recipients, subject, kind, and schedule in logs and result state. Delivery is simulated by default and uses SMTP when configured.
 
 Use Postgres for durable job state:
 
