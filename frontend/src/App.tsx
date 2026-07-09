@@ -65,6 +65,11 @@ type NavItem = {
   icon: ReactNode;
 };
 
+type JobTableRow = {
+  job: Job;
+  executionCount: number;
+};
+
 const navItems: NavItem[] = [
   {
     id: "overview",
@@ -215,6 +220,8 @@ export function App() {
     () => (selectedJob ? results.filter((result) => result.job_id === selectedJob.id) : []),
     [results, selectedJob]
   );
+
+  const jobRows = useMemo(() => groupJobsByWorkflow(jobs), [jobs]);
 
   const sourceHealthResults = useMemo(
     () => results.filter((result) => result.type === "monitor.source_health").slice(0, 6),
@@ -480,9 +487,9 @@ export function App() {
         </Panel>
       </section>
       <section className="dashboard-grid">
-        <Panel title="Recent Jobs" subtitle={`${jobs.length} tracked executions`}>
+        <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
           <JobsTable
-            jobs={jobs.slice(0, 8)}
+            rows={jobRows.slice(0, 8)}
             selectedJobID={selectedJob?.id}
             onSelect={setSelectedJobID}
             onCancel={(job) => void handleCancelJob(job)}
@@ -513,9 +520,9 @@ export function App() {
     overview: overviewPanels,
     jobs: (
       <section className="split-view">
-        <Panel title="Jobs" subtitle={`${jobs.length} tracked executions`}>
+        <Panel title="Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
           <JobsTable
-            jobs={jobs}
+            rows={jobRows}
             selectedJobID={selectedJob?.id}
             onSelect={setSelectedJobID}
             onCancel={(job) => void handleCancelJob(job)}
@@ -1099,14 +1106,14 @@ function SummaryCard({
 }
 
 function JobsTable({
-  jobs,
+  rows,
   selectedJobID,
   onSelect,
   onCancel,
   onRetry,
   loading
 }: {
-  jobs: Job[];
+  rows: JobTableRow[];
   selectedJobID?: string;
   onSelect: (id: string) => void;
   onCancel: (job: Job) => void;
@@ -1116,7 +1123,7 @@ function JobsTable({
   if (loading) {
     return <EmptyState label="Loading jobs" />;
   }
-  if (jobs.length === 0) {
+  if (rows.length === 0) {
     return <EmptyState label="No jobs submitted" />;
   }
 
@@ -1134,7 +1141,7 @@ function JobsTable({
           </tr>
         </thead>
         <tbody>
-          {jobs.map((job) => (
+          {rows.map(({ job, executionCount }) => (
             <tr
               className={job.id === selectedJobID ? "selected" : ""}
               key={job.id}
@@ -1142,7 +1149,10 @@ function JobsTable({
             >
               <td>
                 <strong>{job.name}</strong>
-                <span>{job.id.slice(0, 12)}</span>
+                <span>
+                  {job.id.slice(0, 12)}
+                  {executionCount > 1 ? ` · ${executionCount} executions` : ""}
+                </span>
               </td>
               <td>{job.type}</td>
               <td>
@@ -1649,6 +1659,35 @@ function WorkerPill({ status }: { status: WorkerStatus }) {
 
 function EmptyState({ label }: { label: string }) {
   return <div className="empty-state">{label}</div>;
+}
+
+function groupJobsByWorkflow(jobs: Job[]): JobTableRow[] {
+  const rows = new Map<string, JobTableRow>();
+  for (const job of jobs) {
+    const workflowID = job.metadata?.workflow_id?.trim();
+    const key = workflowID ? `workflow:${workflowID}` : `job:${job.id}`;
+    const existing = rows.get(key);
+    if (!existing) {
+      rows.set(key, { job, executionCount: 1 });
+      continue;
+    }
+
+    existing.executionCount += 1;
+    if (new Date(job.updated_at).getTime() > new Date(existing.job.updated_at).getTime()) {
+      existing.job = job;
+    }
+  }
+
+  return Array.from(rows.values()).sort(
+    (a, b) => new Date(b.job.updated_at).getTime() - new Date(a.job.updated_at).getTime()
+  );
+}
+
+function jobRowsSubtitle(rowCount: number, executionCount: number) {
+  if (rowCount === executionCount) {
+    return `${executionCount} tracked executions`;
+  }
+  return `${rowCount} latest rows from ${executionCount} executions`;
 }
 
 function hasAlertFlag(result: Result) {
