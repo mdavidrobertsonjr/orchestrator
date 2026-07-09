@@ -1518,7 +1518,7 @@ func filterPostings(items []*postings.Posting, r *http.Request) []*postings.Post
 		if minScore > 0 && posting.MatchScore < minScore {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{posting.Company, posting.Title, posting.Location, posting.URL}, " ")), query) {
+		if query != "" && !postings.MatchesQuery(query, posting.Company, posting.Title, posting.Location, posting.URL) {
 			continue
 		}
 		out = append(out, posting)

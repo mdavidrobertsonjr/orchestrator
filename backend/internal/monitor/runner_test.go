@@ -151,6 +151,56 @@ func TestRunnerRejectsLocationOnlyMatchesWhenKeywordsConfigured(t *testing.T) {
 	}
 }
 
+func TestRunnerRequiresKeywordConceptsForSeededMonitor(t *testing.T) {
+	store := postings.NewMemoryStore()
+	runner := NewRunner(store, nil)
+
+	result, err := runner.Run(t.Context(), map[string]any{
+		"sources": []map[string]any{
+			{
+				"type": "fake",
+				"name": "fixture",
+				"postings": []map[string]any{
+					{
+						"company":   "Scale AI",
+						"title":     "Software Engineer, Platform",
+						"url":       "https://example.com/scale/platform",
+						"location":  "New York, NY",
+						"source":    "greenhouse",
+						"source_id": "scale-1",
+					},
+					{
+						"company":   "Scale AI",
+						"title":     "Early Career Software Engineer",
+						"url":       "https://example.com/scale/early-career",
+						"location":  "New York, NY",
+						"source":    "greenhouse",
+						"source_id": "scale-2",
+					},
+				},
+			},
+		},
+		"keywords":          []string{"new grad", "early career", "university", "software engineer", "software engineering"},
+		"excluded_keywords": []string{"senior", "staff", "principal"},
+		"locations":         []string{"new york"},
+		"min_score":         float64(20),
+	}, nil)
+	if err != nil {
+		t.Fatalf("run monitor: %v", err)
+	}
+	if result.Scanned != 2 || result.Matched != 1 || result.Created != 1 || result.Updated != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	stored, err := store.List()
+	if err != nil {
+		t.Fatalf("list postings: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Title != "Early Career Software Engineer" {
+		t.Fatalf("expected only early-career software posting, got %#v", stored)
+	}
+}
+
 func containsLog(logs []string, expected string) bool {
 	for _, log := range logs {
 		if log == expected {

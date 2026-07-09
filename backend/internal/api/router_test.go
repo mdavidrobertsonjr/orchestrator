@@ -251,11 +251,17 @@ func TestListPostingsFiltersAndPaginates(t *testing.T) {
 	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "OpenAI", Title: "Software Engineer, New Grad", URL: "https://example.com/openai", Source: "ashby", Location: "San Francisco", MatchScore: 40}); err != nil {
 		t.Fatalf("upsert posting: %v", err)
 	}
+	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "Datadog", Title: "Early Career Software Engineer", URL: "https://example.com/datadog", Source: "ashby", Location: "New York", MatchScore: 50}); err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
+	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "Figma", Title: "Early Career Product Manager", URL: "https://example.com/figma", Source: "ashby", Location: "New York", MatchScore: 50}); err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
 	if _, _, err := postingStore.Upsert(postings.UpsertPostingParams{Company: "Stripe", Title: "Account Executive", URL: "https://example.com/stripe", Source: "greenhouse", Location: "New York", MatchScore: 10}); err != nil {
 		t.Fatalf("upsert posting: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/postings?source=ashby&min_score=20&q=software&page_size=1&page=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/postings?source=ashby&min_score=20&q=new+grad+early+software+engineering&page_size=10&page=1", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -270,10 +276,15 @@ func TestListPostingsFiltersAndPaginates(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(response.Postings) != 1 || response.Postings[0].Company != "OpenAI" {
+	if len(response.Postings) != 2 {
 		t.Fatalf("unexpected filtered postings: %#v", response.Postings)
 	}
-	if response.Pagination.Total != 1 || response.Pagination.Limit != 1 || response.Pagination.Returned != 1 {
+	for _, posting := range response.Postings {
+		if posting.Company != "OpenAI" && posting.Company != "Datadog" {
+			t.Fatalf("unexpected filtered posting: %#v", posting)
+		}
+	}
+	if response.Pagination.Total != 2 || response.Pagination.Limit != 10 || response.Pagination.Returned != 2 {
 		t.Fatalf("unexpected pagination metadata: %#v", response.Pagination)
 	}
 }

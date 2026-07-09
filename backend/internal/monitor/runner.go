@@ -212,10 +212,12 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 			return 0, nil
 		}
 	}
+	if hasFilters(payload.Keywords) && !postings.MatchesQuery(strings.Join(payload.Keywords, " "), candidate.Company, candidate.Title, candidate.Location, candidate.URL) {
+		return 0, nil
+	}
 
 	score := 0
 	var reasons []string
-	keywordMatched := false
 	for _, company := range payload.Companies {
 		company = strings.ToLower(strings.TrimSpace(company))
 		if company != "" && strings.Contains(strings.ToLower(candidate.Company), company) {
@@ -226,13 +228,9 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 	for _, keyword := range payload.Keywords {
 		keyword = strings.ToLower(strings.TrimSpace(keyword))
 		if keyword != "" && strings.Contains(text, keyword) {
-			keywordMatched = true
 			score += 20
 			reasons = append(reasons, "keyword:"+keyword)
 		}
-	}
-	if hasFilters(payload.Keywords) && !keywordMatched {
-		return 0, nil
 	}
 	for _, location := range payload.Locations {
 		location = strings.ToLower(strings.TrimSpace(location))
