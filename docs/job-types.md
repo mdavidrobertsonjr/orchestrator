@@ -74,6 +74,20 @@ Per-source resiliency controls:
 
 The included seed script creates hourly monitors for Anduril, Palantir, Stripe, OpenAI, Anthropic, Databricks, Ramp, Figma, Plaid, Perplexity, Scale AI, Cursor, xAI, Vercel, Linear, Replit, Modal, and Baseten.
 
+Existing low-signal postings can be reviewed with a dry-run prune:
+
+```bash
+make prune-postings
+```
+
+The prune keeps postings matching the early-career SWE concept query and reports everything else it would delete. To actually delete low-signal postings, run the command directly with `--confirm`:
+
+```bash
+cd backend
+ORCH_DATABASE_URL='postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable' \
+  go run ./cmd/prune-postings --confirm
+```
+
 ## `report.email`
 
 Creates email report jobs. Delivery is simulated unless SMTP settings are configured.
