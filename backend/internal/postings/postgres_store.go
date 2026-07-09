@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -189,19 +190,19 @@ func (s *PostgresStore) ListPage(params ListParams) ([]*Posting, int, error) {
 	ctx, cancel := s.context()
 	defer cancel()
 
+	where, args := postingsListWhere(params)
+	limitPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+	args = append(args, params.Limit)
+	offsetPlaceholder := fmt.Sprintf("$%d", len(args)+1)
+	args = append(args, params.Offset)
+
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_at,
 	first_seen_at, last_seen_at, matched_at, match_score, match_reasons, metadata
 FROM postings
-WHERE ($1 = '' OR lower(company) LIKE '%' || $1 || '%')
-	AND ($2 = '' OR lower(source) = $2)
-	AND ($3 = '' OR lower(location) LIKE '%' || $3 || '%')
-	AND ($4 = 0 OR match_score >= $4)
-	AND ($5 = '' OR lower(company || ' ' || title || ' ' || location || ' ' || url) LIKE '%' || $5 || '%')
+WHERE `+where+`
 ORDER BY first_seen_at DESC
-LIMIT NULLIF($6, 0) OFFSET $7
-`, strings.ToLower(params.Company), strings.ToLower(params.Source), strings.ToLower(params.Location),
-		params.MinScore, strings.ToLower(params.Query), params.Limit, params.Offset)
+LIMIT NULLIF(`+limitPlaceholder+`, 0) OFFSET `+offsetPlaceholder, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -219,19 +220,54 @@ LIMIT NULLIF($6, 0) OFFSET $7
 		return nil, 0, err
 	}
 	var total int
+	countWhere, countArgs := postingsListWhere(params)
 	if err := s.db.QueryRowContext(ctx, `
 SELECT count(*)
 FROM postings
-WHERE ($1 = '' OR lower(company) LIKE '%' || $1 || '%')
-	AND ($2 = '' OR lower(source) = $2)
-	AND ($3 = '' OR lower(location) LIKE '%' || $3 || '%')
-	AND ($4 = 0 OR match_score >= $4)
-	AND ($5 = '' OR lower(company || ' ' || title || ' ' || location || ' ' || url) LIKE '%' || $5 || '%')
-`, strings.ToLower(params.Company), strings.ToLower(params.Source), strings.ToLower(params.Location),
-		params.MinScore, strings.ToLower(params.Query)).Scan(&total); err != nil {
+WHERE `+countWhere, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	return out, total, nil
+}
+
+func postingsListWhere(params ListParams) (string, []any) {
+	var clauses []string
+	var args []any
+	addArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if company := strings.ToLower(strings.TrimSpace(params.Company)); company != "" {
+		placeholder := addArg(company)
+		clauses = append(clauses, "lower(company) LIKE '%' || "+placeholder+" || '%'")
+	}
+	if source := strings.ToLower(strings.TrimSpace(params.Source)); source != "" {
+		placeholder := addArg(source)
+		clauses = append(clauses, "lower(source) = "+placeholder)
+	}
+	if location := strings.ToLower(strings.TrimSpace(params.Location)); location != "" {
+		placeholder := addArg(location)
+		clauses = append(clauses, "lower(location) LIKE '%' || "+placeholder+" || '%'")
+	}
+	if params.MinScore > 0 {
+		placeholder := addArg(params.MinScore)
+		clauses = append(clauses, "match_score >= "+placeholder)
+	}
+	for _, group := range QueryGroups(params.Query) {
+		var groupClauses []string
+		for _, term := range group {
+			placeholder := addArg(term)
+			groupClauses = append(groupClauses, "lower(company || ' ' || title || ' ' || location || ' ' || url) LIKE '%' || "+placeholder+" || '%'")
+		}
+		if len(groupClauses) > 0 {
+			clauses = append(clauses, "("+strings.Join(groupClauses, " OR ")+")")
+		}
+	}
+	if len(clauses) == 0 {
+		return "true", args
+	}
+	return strings.Join(clauses, " AND "), args
 }
 
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {

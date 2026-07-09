@@ -106,6 +106,31 @@ func TestMemoryStoreUpsertDedupesExistingPosting(t *testing.T) {
 	}
 }
 
+func TestQueryGroupsGroupsKnownConcepts(t *testing.T) {
+	groups := QueryGroups("new grad early software engineering")
+	if len(groups) != 2 {
+		t.Fatalf("expected career-stage and software-engineering groups, got %#v", groups)
+	}
+	if !hasTerm(groups[0], "new grad") || !hasTerm(groups[0], "early career") || !hasTerm(groups[0], "entry level") {
+		t.Fatalf("expected career-stage synonyms in first group, got %#v", groups)
+	}
+	if !hasTerm(groups[1], "software engineering") || !hasTerm(groups[1], "software engineer") || !hasTerm(groups[1], "swe") {
+		t.Fatalf("expected software-engineering synonyms in second group, got %#v", groups)
+	}
+}
+
+func TestMatchesQueryUsesOrWithinConceptsAndAndAcrossConcepts(t *testing.T) {
+	if !MatchesQuery("new grad early software engineering", "Early Career Software Engineer", "New York") {
+		t.Fatal("expected query to match early-career software engineering posting")
+	}
+	if !MatchesQuery("new grad early software engineering", "Software Engineer, New Grad", "New York") {
+		t.Fatal("expected query to match new-grad software engineering posting")
+	}
+	if MatchesQuery("new grad early software engineering", "Early Career Product Manager", "New York") {
+		t.Fatal("expected query to reject posting text missing software engineering concept")
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 
@@ -115,3 +140,11 @@ func TestMemoryStoreNotFound(t *testing.T) {
 	}
 }
 
+func hasTerm(terms []string, want string) bool {
+	for _, term := range terms {
+		if term == want {
+			return true
+		}
+	}
+	return false
+}
