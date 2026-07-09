@@ -2,6 +2,25 @@
 
 A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad SWE postings and sends alerts or digests when useful matches appear.
 
+This repository is intended as a public engineering showcase and a locally runnable project. There is no hosted public API or shared compute; screenshots show the dashboard running against a local or self-hosted backend.
+
+## Highlights
+
+- Durable Go control plane with a job state machine, worker leases, retry/dead-letter behavior, and Postgres-backed queue mode.
+- Recurring workflow scheduler with idempotent dispatch records and manual run support.
+- Real product workflow for monitoring Greenhouse, Lever, Ashby, Workday, and custom job feeds.
+- React operations dashboard for queue health, jobs, workflow runs, workers, postings, results, logs, metrics, and alerts.
+- Natural-language job/workflow planning when an operator supplies their own `OPENAI_API_KEY`.
+- CI coverage for backend tests, Postgres integration tests, frontend build, and Docker images.
+
+<!--
+## Screenshots
+
+![Overview dashboard](docs/screenshots/overview.png)
+![Job detail and worker state](docs/screenshots/job-detail.png)
+![Workflow monitor and postings](docs/screenshots/workflow-monitor.png)
+-->
+
 ## What It Does
 
 - Accepts immediate jobs and recurring workflow definitions.
@@ -12,6 +31,8 @@ A Go-based job orchestration platform with a React operations dashboard, worker 
 - Supports deployment as a single server or as separate API, worker, and Postgres processes.
 
 ## Quick Start
+
+This project runs locally by default. Clone it, install frontend dependencies, then run either the in-memory development stack or the Postgres-backed stack.
 
 Install frontend dependencies once:
 

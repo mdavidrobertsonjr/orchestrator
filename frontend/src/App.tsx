@@ -154,7 +154,7 @@ const defaultPostingFilters: PostingFilterState = {
   company: "",
   source: "",
   location: "",
-  minScore: 60,
+  minScore: 40,
   pageSize: 200
 };
 
@@ -1268,7 +1268,7 @@ function PostingFilterBar({
         <input
           value={filters.q}
           onChange={(event) => onChange({ ...filters, q: event.target.value })}
-          placeholder="role, company, location"
+          placeholder="new grad software engineer"
         />
       </label>
       <label>
@@ -1276,7 +1276,7 @@ function PostingFilterBar({
         <input
           value={filters.company}
           onChange={(event) => onChange({ ...filters, company: event.target.value })}
-          placeholder="OpenAI"
+          placeholder="Palantir, Stripe"
         />
       </label>
       <label>
@@ -1284,7 +1284,7 @@ function PostingFilterBar({
         <input
           value={filters.location}
           onChange={(event) => onChange({ ...filters, location: event.target.value })}
-          placeholder="New York"
+          placeholder="New York, Los Angeles"
         />
       </label>
       <label>
@@ -1344,7 +1344,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
 
   return (
     <div className="table-wrap">
-      <table>
+      <table className="postings-table">
         <thead>
           <tr>
             <th>Role</th>
@@ -1358,6 +1358,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
         <tbody>
           {postings.map((posting) => {
             const reasons = posting.match_reasons ?? [];
+            const locations = splitPostingLocations(posting.location);
             return (
               <tr key={posting.id}>
                 <td>
@@ -1369,12 +1370,24 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                   </strong>
                   <span>{posting.company}</span>
                 </td>
-                <td>{posting.location || "-"}</td>
-                <td>
+                <td className="posting-location">
+                  {locations.length > 0 ? (
+                    <>
+                      <span>{locations.slice(0, 2).join("; ")}</span>
+                      {locations.length > 2 && <small>+{locations.length - 2} more</small>}
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td className="posting-source">
                   <strong>{posting.source}</strong>
                   <span>{posting.source_id || posting.id.slice(0, 12)}</span>
                 </td>
-                <td>{posting.match_score ?? 0}</td>
+                <td className="posting-score">
+                  <strong>{posting.match_score ?? 0}</strong>
+                  <span>pts</span>
+                </td>
                 <td>
                   {reasons.length > 0 ? (
                     <div className="reason-list">
@@ -1396,6 +1409,13 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
       </table>
     </div>
   );
+}
+
+function splitPostingLocations(location?: string) {
+  return (location ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 function WorkflowsTable({
