@@ -201,7 +201,7 @@ SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_
 	first_seen_at, last_seen_at, matched_at, match_score, match_reasons, metadata
 FROM postings
 WHERE `+where+`
-ORDER BY first_seen_at DESC
+ORDER BY match_score DESC, first_seen_at DESC
 LIMIT NULLIF(`+limitPlaceholder+`, 0) OFFSET `+offsetPlaceholder, args...)
 	if err != nil {
 		return nil, 0, err

@@ -110,10 +110,17 @@ func (s *MemoryStore) List() ([]*Posting, error) {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].FirstSeenAt.After(out[j].FirstSeenAt)
+		return lessPosting(out[i], out[j])
 	})
 
 	return out, nil
+}
+
+func lessPosting(a, b *Posting) bool {
+	if a.MatchScore != b.MatchScore {
+		return a.MatchScore > b.MatchScore
+	}
+	return a.FirstSeenAt.After(b.FirstSeenAt)
 }
 
 func dedupeKey(params UpsertPostingParams) string {

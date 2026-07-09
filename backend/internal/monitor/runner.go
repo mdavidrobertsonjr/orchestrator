@@ -237,6 +237,7 @@ func scoreCandidate(candidate Candidate, payload Payload) (int, []string) {
 		if location != "" && strings.Contains(strings.ToLower(candidate.Location), location) {
 			score += 20
 			reasons = append(reasons, "location:"+location)
+			break
 		}
 	}
 

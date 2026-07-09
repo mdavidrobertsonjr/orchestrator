@@ -201,6 +201,53 @@ func TestRunnerRequiresKeywordConceptsForSeededMonitor(t *testing.T) {
 	}
 }
 
+func TestRunnerCountsOnlyOneLocationMatch(t *testing.T) {
+	store := postings.NewMemoryStore()
+	runner := NewRunner(store, nil)
+
+	result, err := runner.Run(t.Context(), map[string]any{
+		"sources": []map[string]any{
+			{
+				"type": "fake",
+				"name": "fixture",
+				"postings": []map[string]any{
+					{
+						"company":   "Anduril",
+						"title":     "Early Career Software Engineer",
+						"url":       "https://example.com/anduril/early-career",
+						"location":  "Costa Mesa, California; Seattle, Washington",
+						"source":    "greenhouse",
+						"source_id": "anduril-1",
+					},
+				},
+			},
+		},
+		"keywords":  []string{"early career", "software engineer"},
+		"locations": []string{"costa mesa", "seattle"},
+		"min_score": float64(20),
+	}, nil)
+	if err != nil {
+		t.Fatalf("run monitor: %v", err)
+	}
+	if result.Matched != 1 || result.Created != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	stored, err := store.List()
+	if err != nil {
+		t.Fatalf("list postings: %v", err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("expected one posting, got %#v", stored)
+	}
+	if stored[0].MatchScore != 60 {
+		t.Fatalf("expected one location bonus for total score 60, got %d with reasons %#v", stored[0].MatchScore, stored[0].MatchReasons)
+	}
+	if countReasonPrefix(stored[0].MatchReasons, "location:") != 1 {
+		t.Fatalf("expected one location reason, got %#v", stored[0].MatchReasons)
+	}
+}
+
 func containsLog(logs []string, expected string) bool {
 	for _, log := range logs {
 		if log == expected {
@@ -208,4 +255,14 @@ func containsLog(logs []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func countReasonPrefix(reasons []string, prefix string) int {
+	count := 0
+	for _, reason := range reasons {
+		if len(reason) >= len(prefix) && reason[:len(prefix)] == prefix {
+			count++
+		}
+	}
+	return count
 }

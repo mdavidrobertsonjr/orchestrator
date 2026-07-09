@@ -3,7 +3,7 @@ set -euo pipefail
 
 base_url="${ORCH_MONITOR_URL:-http://localhost:8080}"
 interval_seconds="${ORCH_MONITOR_INTERVAL_SECONDS:-3600}"
-default_locations='["new york", "nyc", "san francisco", "seattle", "remote"]'
+default_locations='["new york", "nyc", "san francisco", "remote"]'
 curl_auth=()
 if [[ -n "${ORCH_AUTH_TOKEN:-}" ]]; then
   curl_auth=(-H "Authorization: Bearer ${ORCH_AUTH_TOKEN}")
@@ -56,9 +56,9 @@ create_monitor() {
 }
 
 create_monitor "anduril" "Anduril" "greenhouse" "board_token" "andurilindustries" \
-  '["new york", "nyc", "san francisco", "seattle", "costa mesa", "remote"]'
+  '["new york", "nyc", "san francisco", "costa mesa", "remote"]'
 create_monitor "palantir" "Palantir" "lever" "account_name" "palantir" \
-  '["new york", "nyc", "washington", "seattle", "palo alto", "denver", "remote"]'
+  '["new york", "nyc", "washington", "palo alto", "denver", "remote"]'
 create_monitor "stripe" "Stripe" "greenhouse" "board_token" "stripe"
 
 create_monitor "openai" "OpenAI" "ashby" "job_board_name" "openai"

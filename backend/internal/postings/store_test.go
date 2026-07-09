@@ -106,6 +106,33 @@ func TestMemoryStoreUpsertDedupesExistingPosting(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListSortsByScoreThenRecency(t *testing.T) {
+	store := NewMemoryStore()
+
+	if _, _, err := store.Upsert(UpsertPostingParams{Company: "Old High", Title: "Software Engineer, New Grad", URL: "https://example.com/old-high", Source: "test", MatchScore: 80}); err != nil {
+		t.Fatalf("upsert old high: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if _, _, err := store.Upsert(UpsertPostingParams{Company: "Low", Title: "Software Engineer, New Grad", URL: "https://example.com/low", Source: "test", MatchScore: 40}); err != nil {
+		t.Fatalf("upsert low: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if _, _, err := store.Upsert(UpsertPostingParams{Company: "New High", Title: "Software Engineer, New Grad", URL: "https://example.com/new-high", Source: "test", MatchScore: 80}); err != nil {
+		t.Fatalf("upsert new high: %v", err)
+	}
+
+	postings, err := store.List()
+	if err != nil {
+		t.Fatalf("list postings: %v", err)
+	}
+	if len(postings) != 3 {
+		t.Fatalf("expected three postings, got %d", len(postings))
+	}
+	if postings[0].Company != "New High" || postings[1].Company != "Old High" || postings[2].Company != "Low" {
+		t.Fatalf("unexpected ordering: %#v", postings)
+	}
+}
+
 func TestQueryGroupsGroupsKnownConcepts(t *testing.T) {
 	groups := QueryGroups("new grad early software engineering")
 	if len(groups) != 2 {
