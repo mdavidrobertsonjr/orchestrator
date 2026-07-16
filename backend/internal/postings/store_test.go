@@ -158,6 +158,18 @@ func TestMatchesQueryUsesOrWithinConceptsAndAndAcrossConcepts(t *testing.T) {
 	}
 }
 
+func TestMatchesQueryAcceptsNaturalEnglishAndSpaceXTitleOrder(t *testing.T) {
+	if !MatchesQuery("show me OpenAI new grad software engineering jobs", "OpenAI", "Software Engineer, New Grad") {
+		t.Fatal("expected conversational OpenAI query to ignore filler words")
+	}
+	if !MatchesQuery("find new grad software engineering roles at Starlink", "SpaceX", "New Graduate Engineer, Software (Starlink)") {
+		t.Fatal("expected SpaceX new-graduate title order to match")
+	}
+	if MatchesQuery("show me OpenAI new grad software engineering jobs", "SpaceX", "New Graduate Engineer, Software (Starlink)") {
+		t.Fatal("expected company term to remain required")
+	}
+}
+
 func TestFilterTermsMatchCommaSeparatedValues(t *testing.T) {
 	terms := FilterTerms(" Palantir, Stripe\nOpenAI,Stripe ")
 	if len(terms) != 3 || terms[0] != "palantir" || terms[1] != "stripe" || terms[2] != "openai" {

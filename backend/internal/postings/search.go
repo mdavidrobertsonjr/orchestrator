@@ -7,13 +7,22 @@ var searchConcepts = []struct {
 	Terms    []string
 }{
 	{
-		Triggers: []string{"new grad", "new-grad", "new college grad", "early career", "early-career", "early", "entry level", "entry-level", "university", "university grad", "university graduate", "campus"},
-		Terms:    []string{"new grad", "new-grad", "new college grad", "early career", "early-career", "early", "entry level", "entry-level", "university", "university grad", "university graduate", "campus"},
+		Triggers: []string{"new graduate", "new college grad", "new grad", "new-grad", "early career", "early-career", "early", "entry level", "entry-level", "university graduate", "university grad", "university", "campus"},
+		Terms:    []string{"new grad", "new-grad", "new graduate", "new college grad", "early career", "early-career", "early", "entry level", "entry-level", "university", "university grad", "university graduate", "campus"},
 	},
 	{
 		Triggers: []string{"software engineering", "software engineer", "swe"},
-		Terms:    []string{"software engineering", "software engineer", "swe"},
+		Terms:    []string{"software engineering", "software engineer", "engineer, software", "swe"},
 	},
+}
+
+var searchStopWords = map[string]bool{
+	"a": true, "an": true, "at": true, "find": true, "for": true, "from": true,
+	"in": true, "job": true, "jobs": true, "me": true, "of": true,
+	"looking": true,
+	"opening": true, "openings": true, "please": true, "posting": true,
+	"postings": true, "role": true, "roles": true, "search": true,
+	"show": true, "the": true, "to": true,
 }
 
 func QueryGroups(query string) [][]string {
@@ -40,7 +49,8 @@ func QueryGroups(query string) [][]string {
 	}
 
 	for _, term := range strings.Fields(query) {
-		if !seenTerm[term] {
+		term = strings.Trim(term, " .!?\t\r\n")
+		if term != "" && !searchStopWords[term] && !seenTerm[term] {
 			groups = append(groups, []string{term})
 			seenTerm[term] = true
 		}
