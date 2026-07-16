@@ -574,11 +574,13 @@ func normalizeMonitorPayload(payload map[string]any) {
 	if mode != "immediate" && mode != "daily" {
 		notifications["mode"] = "immediate"
 	}
-	notifications["recipients"] = validEmailRecipients(notifications["recipients"])
+	// Delivery addresses come from trusted server configuration. Never allow
+	// the model to invent a syntactically valid but unintended recipient.
+	notifications["recipients"] = []string{}
 
 	// Remove common descriptive aliases produced by non-strict structured
 	// output. The worker consumes only the canonical payload keys above.
-	for _, key := range []string{"new-graduate", "new-graduate_keywords", "software-engineering_keywords", "senior-level_exclusions", "requested_locations", "title_filter"} {
+	for _, key := range []string{"new-graduate", "new-graduate_keywords", "new_graduate_and_software_engineering_keywords", "software-engineering_keywords", "senior-level_exclusions", "senior_level_exclusions", "requested_locations", "title_filter"} {
 		delete(payload, key)
 	}
 }
@@ -610,27 +612,6 @@ func normalizeMonitorSources(value any) {
 			source["board_token"] = "spacex"
 		}
 	}
-}
-
-func validEmailRecipients(value any) []string {
-	var values []string
-	switch typed := value.(type) {
-	case []any:
-		for _, item := range typed {
-			if recipient, ok := item.(string); ok {
-				values = append(values, recipient)
-			}
-		}
-	case []string:
-		values = typed
-	}
-	recipients := make([]string, 0, len(values))
-	for _, recipient := range values {
-		if strings.Contains(recipient, "@") {
-			recipients = append(recipients, strings.TrimSpace(recipient))
-		}
-	}
-	return recipients
 }
 
 func hasValues(value any) bool {

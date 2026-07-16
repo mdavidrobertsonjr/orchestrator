@@ -180,8 +180,8 @@ func TestNormalizeCommandPlanCanonicalizesMonitorPayload(t *testing.T) {
 		t.Fatalf("expected supported notification mode, got %#v", notifications)
 	}
 	recipients := notifications["recipients"].([]string)
-	if len(recipients) != 1 || recipients[0] != "valid@example.com" {
-		t.Fatalf("expected only valid email recipients, got %#v", recipients)
+	if len(recipients) != 0 {
+		t.Fatalf("expected model recipients to defer to server configuration, got %#v", recipients)
 	}
 	source := payload["sources"].([]any)[0].(map[string]any)
 	if source["job_board_name"] != "openai" {
