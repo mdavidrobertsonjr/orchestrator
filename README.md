@@ -1,6 +1,6 @@
 # Distributed Job Orchestrator
 
-A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad SWE postings and sends alerts or digests when useful matches appear.
+A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad software engineering roles and sends tracked email alerts when useful matches appear.
 
 This repository is intended as a public engineering showcase and a locally runnable project. There is no hosted public API or shared compute; screenshots show the dashboard running against a local or self-hosted backend.
 
@@ -9,17 +9,12 @@ This repository is intended as a public engineering showcase and a locally runna
 - Durable Go control plane with a job state machine, worker leases, retry/dead-letter behavior, and Postgres-backed queue mode.
 - Recurring workflow scheduler with idempotent dispatch records and manual run support.
 - Real product workflow for monitoring Greenhouse, Lever, Ashby, Workday, and custom job feeds.
+- Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
 - React operations dashboard for queue health, jobs, workflow runs, workers, postings, results, logs, metrics, and alerts.
 - Natural-language job/workflow planning when an operator supplies their own `OPENAI_API_KEY`.
-- CI coverage for backend tests, Postgres integration tests, frontend build, and Docker images.
-
-<!--
-## Screenshots
-
-![Overview dashboard](docs/screenshots/overview.png)
-![Job detail and worker state](docs/screenshots/job-detail.png)
-![Workflow monitor and postings](docs/screenshots/workflow-monitor.png)
--->
+- Idempotent natural-language scheduling that reuses an equivalent workflow instead of creating duplicates.
+- Tracked SMTP delivery with configurable recipients and persisted success/failure state.
+- Automated backend tests, Postgres integration coverage, frontend type-checking, and production builds.
 
 ## What It Does
 
@@ -65,6 +60,14 @@ Open:
 ```text
 http://localhost:8080
 ```
+
+For the production-like distributed stack used in the project demo:
+
+```bash
+make compose-app
+```
+
+This starts the API, a standalone worker, and Postgres. Run `make frontend` in a second terminal for the live Vite dashboard at `http://localhost:5173`.
 
 ## Common Commands
 
@@ -125,6 +128,28 @@ make website
 
 If `ORCH_SMTP_HOST` is not set, email delivery is simulated for local development.
 
+## Project Demo
+
+The shortest end-to-end demonstration starts on the healthy Overview page, shows live Postings, and then creates a recurring monitor from the Commands page with:
+
+```text
+Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour
+```
+
+The command is converted into a typed `jobs.monitor.new_grad` workflow with canonical ATS sources, scoring rules, senior-level exclusions, and an hourly schedule. Repeating the same request returns the existing workflow rather than adding a duplicate.
+
+For a deterministic email demonstration, submit a one-off `report.email` job. Recurring monitors send immediate alerts only for newly discovered matches; rescanning an existing posting updates its state without sending duplicate email.
+
+Recommended portfolio captures:
+
+1. Overview with healthy workers and no active operational alerts.
+2. Postings with recognizable companies, match scores, locations, and match reasons.
+3. The natural-language command result.
+4. The single enabled combined workflow.
+5. A successful job detail with structured results and execution logs.
+
+Do not include `.env`, API keys, access tokens, SMTP credentials, or personal inbox content in screenshots or recordings.
+
 ## Job Monitoring
 
 Run the deterministic demo while the backend is running on `:8080`:
@@ -176,8 +201,11 @@ For interview prep and deeper architecture notes, see [System Design](docs/syste
 
 Representative endpoints:
 
+- `POST /v1/commands/natural`: create or reuse an immediate job or recurring workflow from English.
 - `POST /v1/jobs`: submit an immediate job.
 - `POST /v1/workflows`: create a recurring workflow.
+- `PATCH /v1/workflows/{id}`: enable or pause a workflow.
+- `DELETE /v1/workflows/{id}`: safely delete a paused workflow.
 - `POST /v1/workflows/{id}/run`: manually trigger a workflow.
 - `GET /v1/jobs`, `GET /v1/workflow-runs`, `GET /v1/postings`, `GET /v1/results`: inspect state.
 - `GET /v1/workers`, `GET /v1/metrics`, `GET /metrics`: inspect runtime and Prometheus metrics.
