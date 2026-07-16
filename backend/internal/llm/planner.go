@@ -489,8 +489,53 @@ func normalizeWorkflowPlan(plan *WorkflowPlan) {
 	if plan.Payload == nil {
 		plan.Payload = map[string]any{}
 	}
+	if plan.JobType == "jobs.monitor.new_grad" {
+		normalizeMonitorPayload(plan.Payload)
+	}
 	if plan.Metadata == nil {
 		plan.Metadata = map[string]string{}
+	}
+}
+
+func normalizeMonitorPayload(payload map[string]any) {
+	if !hasValues(payload["keywords"]) {
+		payload["keywords"] = []string{"new grad", "new graduate", "early career", "software engineer", "software engineering"}
+	}
+	if !hasValues(payload["excluded_keywords"]) {
+		payload["excluded_keywords"] = []string{"senior", "staff", "principal", "manager", "director"}
+	}
+	if !hasValues(payload["locations"]) {
+		payload["locations"] = []string{}
+	}
+	minScore, ok := payload["min_score"].(float64)
+	if !ok || minScore <= 0 || minScore > 60 {
+		payload["min_score"] = 20
+	}
+	notifications, ok := payload["notifications"].(map[string]any)
+	if !ok {
+		notifications = map[string]any{}
+		payload["notifications"] = notifications
+	}
+	mode, _ := notifications["mode"].(string)
+	if mode != "immediate" && mode != "daily" {
+		notifications["mode"] = "immediate"
+	}
+
+	// Remove common descriptive aliases produced by non-strict structured
+	// output. The worker consumes only the canonical payload keys above.
+	for _, key := range []string{"new-graduate", "software-engineering_keywords", "senior-level_exclusions", "title_filter"} {
+		delete(payload, key)
+	}
+}
+
+func hasValues(value any) bool {
+	switch values := value.(type) {
+	case []any:
+		return len(values) > 0
+	case []string:
+		return len(values) > 0
+	default:
+		return false
 	}
 }
 

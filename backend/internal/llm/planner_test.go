@@ -151,6 +151,39 @@ func TestOpenAIPlannerParsesCommandResponse(t *testing.T) {
 	}
 }
 
+func TestNormalizeCommandPlanCanonicalizesMonitorPayload(t *testing.T) {
+	plan := CommandPlan{
+		Action: "workflow",
+		Workflow: WorkflowPlan{
+			JobType: "jobs.monitor.new_grad",
+			Payload: map[string]any{
+				"sources":                       []any{map[string]any{"type": "ashby", "company": "OpenAI"}},
+				"new-graduate":                  "new graduate OR early career",
+				"software-engineering_keywords": []any{"software engineer"},
+				"senior-level_exclusions":       []any{"senior"},
+				"min_score":                     float64(70),
+				"notifications":                 map[string]any{"mode": "email"},
+			},
+		},
+	}
+
+	normalizeCommandPlan(&plan)
+	payload := plan.Workflow.Payload
+	if !hasValues(payload["keywords"]) || !hasValues(payload["excluded_keywords"]) {
+		t.Fatalf("expected canonical monitor filters, got %#v", payload)
+	}
+	if payload["min_score"] != 20 {
+		t.Fatalf("expected safe default score, got %#v", payload["min_score"])
+	}
+	notifications := payload["notifications"].(map[string]any)
+	if notifications["mode"] != "immediate" {
+		t.Fatalf("expected supported notification mode, got %#v", notifications)
+	}
+	if _, exists := payload["software-engineering_keywords"]; exists {
+		t.Fatalf("expected descriptive alias to be removed: %#v", payload)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
