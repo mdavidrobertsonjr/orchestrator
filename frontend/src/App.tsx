@@ -207,7 +207,7 @@ export function App() {
   const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
   const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
   const [commandPrompt, setCommandPrompt] = useState(
-    "Monitor Datadog new-grad software engineering roles in NYC every day"
+    "Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour"
   );
   const [commandResult, setCommandResult] = useState<string | null>(null);
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
@@ -602,7 +602,7 @@ export function App() {
     ),
     commands: (
       <section className="command-grid">
-        <Panel title="Tell Orchestrator What To Do" subtitle="Create a job or workflow from one request">
+        <Panel title="Tell Orchestrator What To Do" subtitle="Turn plain English into a job or recurring workflow">
           <NaturalCommandForm
             prompt={commandPrompt}
             result={commandResult}
