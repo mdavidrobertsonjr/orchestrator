@@ -157,12 +157,12 @@ func TestNormalizeCommandPlanCanonicalizesMonitorPayload(t *testing.T) {
 		Workflow: WorkflowPlan{
 			JobType: "jobs.monitor.new_grad",
 			Payload: map[string]any{
-				"sources":                       []any{map[string]any{"type": "ashby", "company": "OpenAI"}},
+				"sources":                       []any{map[string]any{"type": "ashby", "company": "OpenAI", "job_board_name": "OpenAI"}},
 				"new-graduate":                  "new graduate OR early career",
 				"software-engineering_keywords": []any{"software engineer"},
 				"senior-level_exclusions":       []any{"senior"},
 				"min_score":                     float64(70),
-				"notifications":                 map[string]any{"mode": "email"},
+				"notifications":                 map[string]any{"mode": "email", "recipients": []any{"email:jobs", "valid@example.com"}},
 			},
 		},
 	}
@@ -178,6 +178,14 @@ func TestNormalizeCommandPlanCanonicalizesMonitorPayload(t *testing.T) {
 	notifications := payload["notifications"].(map[string]any)
 	if notifications["mode"] != "immediate" {
 		t.Fatalf("expected supported notification mode, got %#v", notifications)
+	}
+	recipients := notifications["recipients"].([]string)
+	if len(recipients) != 1 || recipients[0] != "valid@example.com" {
+		t.Fatalf("expected only valid email recipients, got %#v", recipients)
+	}
+	source := payload["sources"].([]any)[0].(map[string]any)
+	if source["job_board_name"] != "openai" {
+		t.Fatalf("expected canonical OpenAI board name, got %#v", source)
 	}
 	if _, exists := payload["software-engineering_keywords"]; exists {
 		t.Fatalf("expected descriptive alias to be removed: %#v", payload)

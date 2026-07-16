@@ -551,6 +551,7 @@ func normalizeWorkflowPlan(plan *WorkflowPlan) {
 }
 
 func normalizeMonitorPayload(payload map[string]any) {
+	normalizeMonitorSources(payload["sources"])
 	if !hasValues(payload["keywords"]) {
 		payload["keywords"] = []string{"new grad", "new graduate", "early career", "software engineer", "software engineering"}
 	}
@@ -573,12 +574,63 @@ func normalizeMonitorPayload(payload map[string]any) {
 	if mode != "immediate" && mode != "daily" {
 		notifications["mode"] = "immediate"
 	}
+	notifications["recipients"] = validEmailRecipients(notifications["recipients"])
 
 	// Remove common descriptive aliases produced by non-strict structured
 	// output. The worker consumes only the canonical payload keys above.
-	for _, key := range []string{"new-graduate", "software-engineering_keywords", "senior-level_exclusions", "title_filter"} {
+	for _, key := range []string{"new-graduate", "new-graduate_keywords", "software-engineering_keywords", "senior-level_exclusions", "requested_locations", "title_filter"} {
 		delete(payload, key)
 	}
+}
+
+func normalizeMonitorSources(value any) {
+	sources, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, value := range sources {
+		source, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		company, _ := source["company"].(string)
+		switch strings.ToLower(strings.TrimSpace(company)) {
+		case "openai":
+			source["type"] = "ashby"
+			source["job_board_name"] = "openai"
+		case "palantir":
+			source["type"] = "lever"
+			source["account_name"] = "palantir"
+		case "anduril", "anduril industries":
+			source["type"] = "greenhouse"
+			source["board_token"] = "andurilindustries"
+		case "spacex", "starlink", "spacex / starlink":
+			source["type"] = "greenhouse"
+			source["company"] = "SpaceX / Starlink"
+			source["board_token"] = "spacex"
+		}
+	}
+}
+
+func validEmailRecipients(value any) []string {
+	var values []string
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			if recipient, ok := item.(string); ok {
+				values = append(values, recipient)
+			}
+		}
+	case []string:
+		values = typed
+	}
+	recipients := make([]string, 0, len(values))
+	for _, recipient := range values {
+		if strings.Contains(recipient, "@") {
+			recipients = append(recipients, strings.TrimSpace(recipient))
+		}
+	}
+	return recipients
 }
 
 func hasValues(value any) bool {
