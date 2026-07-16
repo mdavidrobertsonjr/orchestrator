@@ -561,10 +561,10 @@ func normalizeMonitorPayload(payload map[string]any) {
 	if !hasValues(payload["locations"]) {
 		payload["locations"] = []string{}
 	}
-	minScore, ok := payload["min_score"].(float64)
-	if !ok || minScore <= 0 || minScore > 60 {
-		payload["min_score"] = 20
-	}
+	// Keep natural monitors on the same tested threshold. Model-selected
+	// thresholds vary between equivalent requests and would defeat both
+	// useful matching and workflow identity checks.
+	payload["min_score"] = 20
 	notifications, ok := payload["notifications"].(map[string]any)
 	if !ok {
 		notifications = map[string]any{}
@@ -580,7 +580,7 @@ func normalizeMonitorPayload(payload map[string]any) {
 
 	// Remove common descriptive aliases produced by non-strict structured
 	// output. The worker consumes only the canonical payload keys above.
-	for _, key := range []string{"new-graduate", "new-graduate_keywords", "new_graduate_and_software_engineering_keywords", "software-engineering_keywords", "senior-level_exclusions", "senior_level_exclusions", "requested_locations", "title_filter"} {
+	for _, key := range []string{"new-graduate", "new_graduate", "new-graduate_keywords", "new_graduate_and_software_engineering_keywords", "software-engineering_keywords", "software_engineering_keywords", "senior-level_exclusions", "senior_level_exclusions", "requested_locations", "title_filter"} {
 		delete(payload, key)
 	}
 }
