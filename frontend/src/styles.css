@@ -464,33 +464,38 @@ td span {
 .postings-table th:first-child,
 .postings-table td:first-child {
   white-space: normal;
-  width: 36%;
+  width: 28%;
 }
 
 .postings-table th:nth-child(2),
 .postings-table td:nth-child(2) {
-  width: 20%;
+  width: 13%;
 }
 
 .postings-table th:nth-child(3),
 .postings-table td:nth-child(3) {
-  width: 13%;
+  width: 18%;
 }
 
 .postings-table th:nth-child(4),
 .postings-table td:nth-child(4) {
+  width: 10%;
+}
+
+.postings-table th:nth-child(5),
+.postings-table td:nth-child(5) {
   padding-left: 10px;
   padding-right: 10px;
   width: 64px;
 }
 
-.postings-table th:nth-child(5),
-.postings-table td:nth-child(5) {
+.postings-table th:nth-child(6),
+.postings-table td:nth-child(6) {
   width: 19%;
 }
 
-.postings-table th:nth-child(6),
-.postings-table td:nth-child(6) {
+.postings-table th:nth-child(7),
+.postings-table td:nth-child(7) {
   padding-left: 10px;
   padding-right: 10px;
   width: 84px;
@@ -506,7 +511,6 @@ td span {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
 }
 
 .posting-company > span {

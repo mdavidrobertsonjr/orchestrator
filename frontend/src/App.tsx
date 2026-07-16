@@ -165,8 +165,7 @@ const priorityCompanies = [
   { label: "Anduril", value: "Anduril" },
   { label: "OpenAI", value: "OpenAI" },
   { label: "SpaceX / Starlink", value: "SpaceX, Starlink" },
-  { label: "Notion", value: "Notion" },
-  { label: "Robinhood", value: "Robinhood" }
+  { label: "Notion", value: "Notion" }
 ];
 
 const companyGroups = [
@@ -1471,6 +1470,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
         <thead>
           <tr>
             <th>Role</th>
+            <th>Company</th>
             <th>Location</th>
             <th>Source</th>
             <th>Score</th>
@@ -1492,10 +1492,10 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                       <ExternalLink size={13} />
                     </a>
                   </strong>
-                  <div className="posting-company">
-                    <span>{posting.company}</span>
-                    {isEarlyStage && <span className="company-stage-badge">Early stage</span>}
-                  </div>
+                </td>
+                <td className="posting-company">
+                  <span>{posting.company}</span>
+                  {isEarlyStage && <span className="company-stage-badge">Early stage</span>}
                 </td>
                 <td className="posting-location">
                   {locations.length > 0 ? (
