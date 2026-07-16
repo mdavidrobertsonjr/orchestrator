@@ -195,6 +195,8 @@ const companyGroups = [
   { label: "Fintech", value: "Stripe, Ramp, Plaid, Robinhood" }
 ];
 
+const earlyStageCompanies = new Set(["Confido", "Hipp Health", "Kernel", "Mirage", "Zettabyte"]);
+
 const initialWorkflowForm: WorkflowFormState = {
   name: "datadog-new-grad-monitor",
   jobType: "jobs.monitor.new_grad",
@@ -1475,6 +1477,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
           {postings.map((posting) => {
             const reasons = posting.match_reasons ?? [];
             const locations = splitPostingLocations(posting.location);
+            const isEarlyStage = earlyStageCompanies.has(posting.company);
             return (
               <tr key={posting.id}>
                 <td>
@@ -1484,7 +1487,10 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                       <ExternalLink size={13} />
                     </a>
                   </strong>
-                  <span>{posting.company}</span>
+                  <div className="posting-company">
+                    <span>{posting.company}</span>
+                    {isEarlyStage && <span className="company-stage-badge">Early stage</span>}
+                  </div>
                 </td>
                 <td className="posting-location">
                   {locations.length > 0 ? (

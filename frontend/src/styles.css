@@ -501,6 +501,30 @@ td span {
   white-space: normal;
 }
 
+.posting-company {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.posting-company > span {
+  margin-top: 0;
+}
+
+.posting-company .company-stage-badge {
+  background: #fff7e8;
+  border: 1px solid #f0d39a;
+  border-radius: 999px;
+  color: #8a5800;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+
 .posting-location {
   max-width: 260px;
   white-space: normal;
