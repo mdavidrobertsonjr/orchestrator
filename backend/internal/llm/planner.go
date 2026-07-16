@@ -53,6 +53,59 @@ type CommandPlan struct {
 	Workflow WorkflowPlan `json:"workflow"`
 }
 
+func (p *JobPlan) UnmarshalJSON(data []byte) error {
+	type plain JobPlan
+	var decoded struct {
+		plain
+		Metadata json.RawMessage `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = JobPlan(decoded.plain)
+	p.Metadata = decodeMetadata(decoded.Metadata)
+	return nil
+}
+
+func (p *WorkflowPlan) UnmarshalJSON(data []byte) error {
+	type plain WorkflowPlan
+	var decoded struct {
+		plain
+		Metadata json.RawMessage `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = WorkflowPlan(decoded.plain)
+	p.Metadata = decodeMetadata(decoded.Metadata)
+	return nil
+}
+
+func decodeMetadata(data json.RawMessage) map[string]string {
+	metadata := map[string]string{}
+	if len(data) == 0 || string(data) == "null" {
+		return metadata
+	}
+	var values map[string]any
+	if err := json.Unmarshal(data, &values); err != nil {
+		return metadata
+	}
+	for key, value := range values {
+		switch typed := value.(type) {
+		case string:
+			metadata[key] = typed
+		case nil:
+			continue
+		default:
+			encoded, err := json.Marshal(typed)
+			if err == nil {
+				metadata[key] = string(encoded)
+			}
+		}
+	}
+	return metadata
+}
+
 type OpenAIPlanner struct {
 	apiKey     string
 	model      string

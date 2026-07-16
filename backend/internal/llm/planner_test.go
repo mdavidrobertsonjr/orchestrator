@@ -184,6 +184,21 @@ func TestNormalizeCommandPlanCanonicalizesMonitorPayload(t *testing.T) {
 	}
 }
 
+func TestCommandPlanAcceptsStructuredMetadataValues(t *testing.T) {
+	var plan CommandPlan
+	err := json.Unmarshal([]byte(`{
+		"action":"workflow",
+		"job":{"name":"fallback","type":"report.email","duration_ms":1000,"max_attempts":1,"should_fail":false,"metadata":{},"report":{"recipients":[],"subject":"","kind":"custom","schedule":""}},
+		"workflow":{"name":"monitor","job_type":"jobs.monitor.new_grad","interval_seconds":3600,"max_attempts":2,"enabled":true,"payload":{},"metadata":{"companies":["OpenAI","SpaceX"],"source":"english"}}
+	}`), &plan)
+	if err != nil {
+		t.Fatalf("unmarshal command plan: %v", err)
+	}
+	if plan.Workflow.Metadata["companies"] != `["OpenAI","SpaceX"]` || plan.Workflow.Metadata["source"] != "english" {
+		t.Fatalf("unexpected normalized metadata: %#v", plan.Workflow.Metadata)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
