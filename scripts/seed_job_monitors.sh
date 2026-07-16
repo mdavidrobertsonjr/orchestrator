@@ -8,6 +8,7 @@ curl_auth=()
 if [[ -n "${ORCH_AUTH_TOKEN:-}" ]]; then
   curl_auth=(-H "Authorization: Bearer ${ORCH_AUTH_TOKEN}")
 fi
+existing_workflows="$(curl -fsS "${base_url}/v1/workflows" "${curl_auth[@]}")"
 
 create_monitor() {
   local slug="$1"
@@ -18,6 +19,11 @@ create_monitor() {
   local locations="${6:-${default_locations}}"
 
   local name="${slug}-job-monitor"
+  if [[ "${existing_workflows}" == *"\"name\":\"${name}\""* ]]; then
+    echo "Skipping existing ${name}"
+    return
+  fi
+
   local payload
   payload="{
     \"name\": \"${name}\",
@@ -53,6 +59,7 @@ create_monitor() {
     -d "${payload}")"
   echo "${response}"
   echo
+  existing_workflows+="${response}"
 }
 
 create_monitor "anduril" "Anduril" "greenhouse" "board_token" "andurilindustries" \
@@ -85,6 +92,23 @@ create_monitor "spacex-starlink" "SpaceX / Starlink" "greenhouse" "board_token" 
   '["hawthorne", "bastrop", "redmond", "sunnyvale", "starbase", "cape canaveral", "remote"]'
 create_monitor "notion" "Notion" "ashby" "job_board_name" "notion"
 create_monitor "robinhood" "Robinhood" "greenhouse" "board_token" "robinhood"
+
+# Additional high-signal infrastructure, developer-platform, and aerospace
+# companies. Each identifier is verified against its public ATS endpoint.
+create_monitor "cloudflare" "Cloudflare" "greenhouse" "board_token" "cloudflare"
+create_monitor "mongodb" "MongoDB" "greenhouse" "board_token" "mongodb"
+create_monitor "cockroach-labs" "Cockroach Labs" "greenhouse" "board_token" "cockroachlabs"
+create_monitor "astranis" "Astranis" "greenhouse" "board_token" "astranis" \
+  '["san francisco", "remote"]'
+create_monitor "zipline" "Zipline" "greenhouse" "board_token" "flyzipline" \
+  '["san francisco", "south san francisco", "remote"]'
+create_monitor "relativity-space" "Relativity Space" "greenhouse" "board_token" "relativity" \
+  '["long beach", "los angeles", "remote"]'
+create_monitor "confido" "Confido" "ashby" "job_board_name" "confido" \
+  '["new york", "nyc", "remote"]'
+create_monitor "zettabyte" "Zettabyte" "ashby" "job_board_name" "zettabyte-space"
+create_monitor "whoop" "WHOOP" "lever" "account_name" "whoop" \
+  '["boston", "remote"]'
 
 echo "Seeded job monitors."
 echo "Use the Workflows dashboard or POST /v1/workflows/<id>/run to run one immediately."
