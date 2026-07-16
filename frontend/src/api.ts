@@ -344,6 +344,10 @@ export function updateWorkflow(id: string, input: UpdateWorkflowInput): Promise<
   });
 }
 
+export function deleteWorkflow(id: string): Promise<void> {
+  return request<void>(`/v1/workflows/${id}`, { method: "DELETE" });
+}
+
 export function runWorkflow(id: string): Promise<Job> {
   return request<Job>(`/v1/workflows/${id}/run`, {
     method: "POST"
@@ -377,6 +381,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => null);
     const message = body?.error ?? `request failed with ${response.status}`;
     throw new Error(message);
+  }
+  if (response.status === 204) {
+    return undefined as T;
   }
   return response.json() as Promise<T>;
 }

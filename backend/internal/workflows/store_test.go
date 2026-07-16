@@ -150,6 +150,23 @@ func TestMemoryStoreSetEnabled(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreDelete(t *testing.T) {
+	store := NewMemoryStore()
+	workflow, err := store.Create(CreateWorkflowParams{Name: "cleanup", JobType: "demo", Enabled: false, IntervalSeconds: 60})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	if err := store.Delete(workflow.ID); err != nil {
+		t.Fatalf("delete workflow: %v", err)
+	}
+	if _, err := store.Get(workflow.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted workflow to be missing, got %v", err)
+	}
+	if err := store.Delete(workflow.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing delete error, got %v", err)
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 

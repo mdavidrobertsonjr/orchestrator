@@ -18,6 +18,7 @@ type Store interface {
 	ListDue(now time.Time) ([]*Workflow, error)
 	MarkDispatched(id string, jobID string, lastRunAt time.Time, nextRunAt time.Time) (*Workflow, error)
 	SetEnabled(id string, enabled bool) (*Workflow, error)
+	Delete(id string) error
 }
 
 type MemoryStore struct {
@@ -146,6 +147,16 @@ func (s *MemoryStore) SetEnabled(id string, enabled bool) (*Workflow, error) {
 	workflow.Enabled = enabled
 	workflow.UpdatedAt = time.Now().UTC()
 	return cloneWorkflow(workflow), nil
+}
+
+func (s *MemoryStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.workflows[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.workflows, id)
+	return nil
 }
 
 func cloneWorkflow(workflow *Workflow) *Workflow {

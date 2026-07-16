@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1224,6 +1225,33 @@ func TestUpdateWorkflowValidation(t *testing.T) {
 				t.Fatalf("expected status %d, got %d with body %s", http.StatusBadRequest, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestDeleteWorkflowRequiresDisabledWorkflow(t *testing.T) {
+	workflowStore := workflows.NewMemoryStore()
+	router := testRouterWithWorkflows(workflowStore)
+	workflow, err := workflowStore.Create(workflows.CreateWorkflowParams{Name: "cleanup", JobType: "demo", Enabled: true, IntervalSeconds: 60})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/workflows/"+workflow.ID, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusConflict, rec.Code, rec.Body.String())
+	}
+	if _, err := workflowStore.SetEnabled(workflow.ID, false); err != nil {
+		t.Fatalf("disable workflow: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/v1/workflows/"+workflow.ID, nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d with body %s", http.StatusNoContent, rec.Code, rec.Body.String())
+	}
+	if _, err := workflowStore.Get(workflow.ID); !errors.Is(err, workflows.ErrNotFound) {
+		t.Fatalf("expected workflow deletion, got %v", err)
 	}
 }
 

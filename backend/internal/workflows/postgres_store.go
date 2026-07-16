@@ -192,6 +192,23 @@ RETURNING id, name, job_type, payload, metadata, max_attempts, enabled, interval
 	return workflow, nil
 }
 
+func (s *PostgresStore) Delete(id string) error {
+	ctx, cancel := s.context()
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `DELETE FROM workflows WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) context() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), postgresStoreTimeout)
 }

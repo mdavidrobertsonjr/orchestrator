@@ -16,6 +16,7 @@ import {
   Server,
   Send,
   Terminal,
+  Trash2,
   ToggleRight,
   XCircle
 } from "lucide-react";
@@ -25,6 +26,7 @@ import {
   createJob,
   createNaturalCommand,
   createWorkflow,
+  deleteWorkflow,
   eventStreamURL,
   fetchHealth,
   fetchJobs,
@@ -452,6 +454,19 @@ export function App() {
     }
   }
 
+  async function handleWorkflowDelete(workflow: Workflow) {
+	if (!window.confirm(`Delete disabled workflow "${workflow.name}"? Run history and jobs will be retained.`)) {
+	  return;
+	}
+	setError(null);
+	try {
+	  await deleteWorkflow(workflow.id);
+	  await refresh();
+	} catch (err) {
+	  setError(err instanceof Error ? err.message : "failed to delete workflow");
+	}
+  }
+
   async function handleCancelJob(job: Job) {
     setError(null);
 
@@ -567,6 +582,7 @@ export function App() {
           loading={loading}
           onToggle={(workflow) => void handleWorkflowToggle(workflow)}
           onRun={(workflow) => void handleWorkflowRun(workflow)}
+          onDelete={(workflow) => void handleWorkflowDelete(workflow)}
           onSelectJob={setSelectedJobID}
         />
       </Panel>
@@ -1491,6 +1507,7 @@ function WorkflowsTable({
   loading,
   onToggle,
   onRun,
+  onDelete,
   onSelectJob
 }: {
   workflows: Workflow[];
@@ -1499,6 +1516,7 @@ function WorkflowsTable({
   loading: boolean;
   onToggle: (workflow: Workflow) => void;
   onRun: (workflow: Workflow) => void;
+  onDelete: (workflow: Workflow) => void;
   onSelectJob: (id: string) => void;
 }) {
   if (loading) {
@@ -1594,6 +1612,18 @@ function WorkflowsTable({
                       {workflow.enabled ? <Pause size={16} /> : <ToggleRight size={16} />}
                       {workflow.enabled ? "Pause" : "Resume"}
                     </button>
+                    {!workflow.enabled && (
+                      <button
+                        className="table-action danger"
+                        type="button"
+                        onClick={() => onDelete(workflow)}
+                        aria-label="Delete workflow"
+                        title="Delete disabled workflow"
+                      >
+                        <Trash2 size={16} />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

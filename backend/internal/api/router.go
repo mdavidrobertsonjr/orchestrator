@@ -104,6 +104,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("POST /v1/workflows/natural", server.handleCreateNaturalWorkflow)
 	mux.HandleFunc("GET /v1/workflows/{id}", server.handleGetWorkflow)
 	mux.HandleFunc("PATCH /v1/workflows/{id}", server.handleUpdateWorkflow)
+	mux.HandleFunc("DELETE /v1/workflows/{id}", server.handleDeleteWorkflow)
 	mux.HandleFunc("POST /v1/workflows/{id}/run", server.handleRunWorkflow)
 	mux.HandleFunc("GET /v1/workflow-runs", server.handleListWorkflowRuns)
 	mux.HandleFunc("GET /v1/workflow-runs/{id}", server.handleGetWorkflowRun)
@@ -1212,6 +1213,37 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	writeJSON(w, http.StatusOK, workflow)
+}
+
+func (s *Server) handleDeleteWorkflow(w http.ResponseWriter, r *http.Request) {
+	if s.workflows == nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	workflow, err := s.workflows.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, workflows.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+	if workflow.Enabled {
+		writeError(w, http.StatusConflict, "pause workflow before deleting it")
+		return
+	}
+	if err := s.workflows.Delete(workflow.ID); err != nil {
+		s.logger.Error("failed to delete workflow", "workflow_id", workflow.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete workflow")
+		return
+	}
+	s.recordAuditEvent(r, auditEvent{
+		Action:     "workflow.deleted",
+		WorkflowID: workflow.ID,
+		Summary:    "workflow deleted: " + workflow.Name,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
