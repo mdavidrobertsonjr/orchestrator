@@ -16,6 +16,18 @@ This repository is intended as a public engineering showcase and a locally runna
 - Tracked SMTP delivery with configurable recipients and persisted success/failure state.
 - Automated backend tests, Postgres integration coverage, frontend type-checking, and production builds.
 
+## Product Tour
+
+[Watch the 64-second product demo](docs/demo/orchestrator-demo.mp4) to see live filtering, natural-language workflow creation, and workflow lifecycle controls.
+
+| Runtime overview | Matched job postings |
+| --- | --- |
+| ![Orchestrator dashboard showing healthy runtime metrics, alerts, source health, and recent jobs](docs/screenshots/dashboard-overview.png) | ![Job postings dashboard with company, metro-area, source, and score filters](docs/screenshots/job-postings.png) |
+
+| Natural-language commands | Scheduled workflows |
+| --- | --- |
+| ![Natural-language command interface and structured recurring-monitor configuration](docs/screenshots/natural-language-commands.png) | ![Scheduled job-monitor workflows with status, run history, and controls](docs/screenshots/scheduled-workflows.png) |
+
 ## What It Does
 
 - Accepts immediate jobs and recurring workflow definitions.

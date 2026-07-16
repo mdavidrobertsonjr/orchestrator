@@ -352,6 +352,18 @@ h2 {
   margin-bottom: 18px;
 }
 
+.overview-columns {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+}
+
+.overview-column {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
 .split-view {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
@@ -361,7 +373,7 @@ h2 {
 
 .command-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -385,6 +397,14 @@ h2 {
   color: #607080;
   font-size: 13px;
   margin-bottom: 0;
+}
+
+.panel-meta {
+  border-bottom: 1px solid #edf1f5;
+  color: #607080;
+  font-size: 12px;
+  margin: 0;
+  padding: 10px 18px;
 }
 
 .table-wrap {
@@ -464,41 +484,36 @@ td span {
 .postings-table th:first-child,
 .postings-table td:first-child {
   white-space: normal;
-  width: 28%;
+  width: 29%;
 }
 
 .postings-table th:nth-child(2),
 .postings-table td:nth-child(2) {
-  width: 13%;
+  width: 15%;
 }
 
 .postings-table th:nth-child(3),
 .postings-table td:nth-child(3) {
-  width: 18%;
+  width: 19%;
 }
 
 .postings-table th:nth-child(4),
 .postings-table td:nth-child(4) {
-  width: 10%;
-}
-
-.postings-table th:nth-child(5),
-.postings-table td:nth-child(5) {
   padding-left: 10px;
   padding-right: 10px;
   width: 64px;
 }
 
-.postings-table th:nth-child(6),
-.postings-table td:nth-child(6) {
-  width: 19%;
+.postings-table th:nth-child(5),
+.postings-table td:nth-child(5) {
+  width: 22%;
 }
 
-.postings-table th:nth-child(7),
-.postings-table td:nth-child(7) {
+.postings-table th:nth-child(6),
+.postings-table td:nth-child(6) {
   padding-left: 10px;
   padding-right: 10px;
-  width: 84px;
+  width: 110px;
 }
 
 .postings-table td:first-child strong {
@@ -511,6 +526,12 @@ td span {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.posting-company-name {
+  color: #17202a;
+  font-size: 14px;
+  line-height: 1.35;
 }
 
 .posting-company > span {
@@ -550,6 +571,12 @@ td span {
   display: block;
   font-size: 11px;
   font-weight: 800;
+  margin-top: 4px;
+}
+
+.posting-matched span {
+  color: #7a8998;
+  font-size: 11px;
   margin-top: 4px;
 }
 
@@ -805,6 +832,10 @@ textarea {
   resize: vertical;
 }
 
+.command-request {
+  min-height: 64px;
+}
+
 .code-textarea {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
@@ -815,6 +846,52 @@ textarea {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.workflow-primary-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(200px, 1fr) minmax(140px, 0.65fr) minmax(100px, 0.45fr);
+}
+
+.monitor-fields {
+  background: #f7f9fb;
+  border: 1px solid #e2e8ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 14px;
+}
+
+.workflow-wide-field {
+  grid-column: span 2;
+}
+
+.advanced-payload {
+  border-top: 1px solid #edf1f5;
+  padding-top: 12px;
+}
+
+.advanced-payload summary {
+  color: #405060;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.advanced-payload label {
+  margin-top: 12px;
+}
+
+.workflow-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.workflow-actions .primary-button {
+  min-width: 220px;
 }
 
 .checkbox-field {
@@ -1160,8 +1237,14 @@ textarea {
 
   .dashboard-grid,
   .split-view,
-  .command-grid {
+  .command-grid,
+  .overview-columns {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-primary-fields,
+  .monitor-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1190,6 +1273,21 @@ textarea {
   .metrics-panel,
   .posting-filters {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-primary-fields,
+  .monitor-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-wide-field {
+    grid-column: span 1;
+  }
+
+  .workflow-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .queue-meter {

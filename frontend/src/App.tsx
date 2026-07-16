@@ -23,7 +23,6 @@ import {
 import {
   cancelJob,
   clearAuthToken,
-  createJob,
   createNaturalCommand,
   createWorkflow,
   deleteWorkflow,
@@ -117,22 +116,6 @@ const navItems: NavItem[] = [
   }
 ];
 
-type SubmitState = {
-  name: string;
-  type: string;
-  durationMs: number;
-  maxAttempts: number;
-  shouldFail: boolean;
-};
-
-const initialSubmitState: SubmitState = {
-  name: "demo-transcode",
-  type: "video.transcode",
-  durationMs: 2000,
-  maxAttempts: 2,
-  shouldFail: false
-};
-
 type WorkflowFormState = {
   name: string;
   jobType: string;
@@ -194,6 +177,29 @@ const companyGroups = [
   { label: "Fintech", value: "Stripe, Ramp, Plaid, Robinhood" }
 ];
 
+const metroAreas = [
+  {
+    label: "Bay Area",
+    value: "San Francisco, Oakland, Berkeley, San Jose, Palo Alto, Mountain View, Sunnyvale, Santa Clara, Redwood City"
+  },
+  {
+    label: "LA Metro",
+    value: "Los Angeles, Santa Monica, Culver City, Pasadena, Burbank, El Segundo"
+  },
+  {
+    label: "Orange County",
+    value: "Costa Mesa, Irvine, Newport Beach, Anaheim, Santa Ana"
+  },
+  {
+    label: "NYC Metro",
+    value: "New York, NYC, Jersey City, Hoboken, Newark"
+  },
+  { label: "Seattle Metro", value: "Seattle, Bellevue, Redmond, Kirkland" },
+  { label: "Austin Metro", value: "Austin, Round Rock" },
+  { label: "Boston Metro", value: "Boston, Cambridge, Somerville" },
+  { label: "Remote", value: "Remote" }
+];
+
 const earlyStageCompanies = new Set(["Confido", "Eventual", "Hipp Health", "Kernel", "Mirage", "Zettabyte"]);
 
 const initialWorkflowForm: WorkflowFormState = {
@@ -231,7 +237,6 @@ export function App() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
-  const [form, setForm] = useState<SubmitState>(initialSubmitState);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
   const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
   const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
@@ -380,33 +385,6 @@ export function App() {
     setError(null);
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const created = await createJob({
-        name: form.name.trim() || form.type.trim(),
-        type: form.type.trim(),
-        max_attempts: form.maxAttempts,
-        payload: {
-          duration_ms: form.durationMs,
-          should_fail: form.shouldFail
-        },
-        metadata: {
-          submitted_by: "dashboard"
-        }
-      });
-      setSelectedJobID(created.id);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to submit job");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   async function handleNaturalCommandSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
@@ -537,32 +515,36 @@ export function App() {
           <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
       </section>
-      <section className="dashboard-grid">
-        <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
-          <JobsTable
-            rows={jobRows.slice(0, 8)}
-            selectedJobID={selectedJob?.id}
-            onSelect={setSelectedJobID}
-            onCancel={(job) => void handleCancelJob(job)}
-            onRetry={(job) => void handleRetryJob(job)}
-            loading={loading}
-          />
-        </Panel>
-        <Panel title="Queue" subtitle="In-memory capacity">
-          <QueueMeter queue={queue} fill={queueFill} />
-        </Panel>
-        <Panel
-          title="Runtime Metrics"
-          subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
-        >
-          <RuntimeMetricsPanel metrics={metrics} loading={loading} />
-        </Panel>
-        <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
-          <ResultsTable results={results} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
-        </Panel>
-        <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
-          {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
-        </Panel>
+      <section className="overview-columns">
+        <div className="overview-column">
+          <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
+            <JobsTable
+              rows={jobRows.slice(0, 5)}
+              selectedJobID={selectedJob?.id}
+              onSelect={setSelectedJobID}
+              onCancel={(job) => void handleCancelJob(job)}
+              onRetry={(job) => void handleRetryJob(job)}
+              loading={loading}
+            />
+          </Panel>
+          <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
+            {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
+          </Panel>
+        </div>
+        <div className="overview-column">
+          <Panel title="Queue" subtitle="In-memory capacity">
+            <QueueMeter queue={queue} fill={queueFill} />
+          </Panel>
+          <Panel
+            title="Runtime Metrics"
+            subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
+          >
+            <RuntimeMetricsPanel metrics={metrics} loading={loading} />
+          </Panel>
+          <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+            <ResultsTable results={results.slice(0, 4)} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
+          </Panel>
+        </div>
       </section>
     </>
   );
@@ -571,7 +553,7 @@ export function App() {
     overview: overviewPanels,
     jobs: (
       <section className="split-view">
-        <Panel title="Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
+        <Panel subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
           <JobsTable
             rows={jobRows}
             selectedJobID={selectedJob?.id}
@@ -587,10 +569,7 @@ export function App() {
       </section>
     ),
     postings: (
-      <Panel
-        title="Discovered Postings"
-        subtitle={`${postings.length} shown of ${metrics?.postings.total ?? postings.length} total`}
-      >
+      <Panel subtitle={`${postings.length} shown of ${metrics?.postings.total ?? postings.length} total`}>
         <PostingFilterBar
           filters={postingFilterForm}
           onChange={setPostingFilterForm}
@@ -601,7 +580,7 @@ export function App() {
       </Panel>
     ),
     workflows: (
-      <Panel title="Scheduled Workflows" subtitle={`${workflows.length} recurring definitions`}>
+      <Panel subtitle={`${workflows.length} recurring definitions`}>
         <WorkflowsTable
           workflows={workflows}
           runs={workflowRuns}
@@ -616,7 +595,7 @@ export function App() {
     ),
     results: (
       <section className="split-view">
-        <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+        <Panel subtitle={`${results.length} structured outputs`}>
           <ResultsTable results={results} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
         <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
@@ -626,7 +605,7 @@ export function App() {
     ),
     workers: (
       <section className="split-view">
-        <Panel title="Workers" subtitle={`${workers.length} registered nodes`}>
+        <Panel subtitle={`${workers.length} registered nodes`}>
           <WorkersTable workers={workers} loading={loading} />
         </Panel>
         <Panel title="Queue" subtitle="In-memory capacity">
@@ -654,16 +633,13 @@ export function App() {
             onSubmit={handleNaturalCommandSubmit}
           />
         </Panel>
-        <Panel title="Schedule Workflow" subtitle="Create recurring work">
+        <Panel title="Configure Workflow" subtitle="Create recurring monitoring without editing JSON">
           <WorkflowForm
             form={workflowForm}
             submitting={submitting}
             onChange={setWorkflowForm}
             onSubmit={handleWorkflowSubmit}
           />
-        </Panel>
-        <Panel title="Submit Job" subtitle="Create a simulated workload">
-          <SubmitJobForm form={form} submitting={submitting} onChange={setForm} onSubmit={handleSubmit} />
         </Panel>
       </section>
     )
@@ -792,15 +768,19 @@ function SummaryGrid({
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+function Panel({ title, subtitle, children }: { title?: string; subtitle: string; children: ReactNode }) {
   return (
     <section className="panel">
-      <div className="panel-header">
-        <div>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
+      {title ? (
+        <div className="panel-header">
+          <div>
+            <h2>{title}</h2>
+            <p>{subtitle}</p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="panel-meta">{subtitle}</p>
+      )}
       {children}
     </section>
   );
@@ -976,8 +956,13 @@ function NaturalCommandForm({
   return (
     <form className="submit-form" onSubmit={onSubmit}>
       <label>
-        <span>Request</span>
-        <textarea value={prompt} onChange={(event) => onChange(event.target.value)} rows={4} />
+        <textarea
+          aria-label="Instructions for Orchestrator"
+          className="command-request"
+          value={prompt}
+          onChange={(event) => onChange(event.target.value)}
+          rows={2}
+        />
       </label>
       <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
         <Send size={16} />
@@ -999,28 +984,36 @@ function WorkflowForm({
   onChange: (value: WorkflowFormState) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const payload = parseWorkflowPayload(form.payload);
+  const source = Array.isArray(payload.sources) && payload.sources[0] && typeof payload.sources[0] === "object"
+    ? (payload.sources[0] as Record<string, unknown>)
+    : {};
+  const sourceType = typeof source.type === "string" ? source.type : "greenhouse";
+  const identifierKey = sourceIdentifierKey(sourceType);
+  const updatePayload = (updates: Record<string, unknown>) => {
+    onChange({ ...form, payload: JSON.stringify({ ...payload, ...updates }, null, 2) });
+  };
+  const updateSource = (updates: Record<string, unknown>) => {
+    updatePayload({ sources: [{ ...source, ...updates }] });
+  };
+
   return (
-    <form className="submit-form" onSubmit={onSubmit}>
-      <label>
-        <span>Name</span>
-        <input
-          value={form.name}
-          onChange={(event) => onChange({ ...form, name: event.target.value })}
-          placeholder="datadog-new-grad-monitor"
-        />
-      </label>
-      <label>
-        <span>Job Type</span>
-        <select value={form.jobType} onChange={(event) => onChange({ ...form, jobType: event.target.value })}>
-          <option value="jobs.monitor.new_grad">jobs.monitor.new_grad</option>
-          <option value="report.email">report.email</option>
-          <option value="video.transcode">video.transcode</option>
-          <option value="http.request">http.request</option>
-          <option value="scrape.url">scrape.url</option>
-          <option value="data.pipeline">data.pipeline</option>
-        </select>
-      </label>
-      <div className="field-row">
+    <form className="submit-form workflow-form" onSubmit={onSubmit}>
+      <div className="workflow-primary-fields">
+        <label>
+          <span>Name</span>
+          <input value={form.name} onChange={(event) => onChange({ ...form, name: event.target.value })} />
+        </label>
+        <label>
+          <span>Job Type</span>
+          <select value={form.jobType} onChange={(event) => onChange({ ...form, jobType: event.target.value })}>
+            <option value="jobs.monitor.new_grad">New-grad job monitor</option>
+            <option value="report.email">Email report</option>
+            <option value="http.request">HTTP request</option>
+            <option value="scrape.url">Web scraper</option>
+            <option value="data.pipeline">Data pipeline</option>
+          </select>
+        </label>
         <label>
           <span>Interval</span>
           <select
@@ -1043,101 +1036,101 @@ function WorkflowForm({
           />
         </label>
       </div>
-      <label>
-        <span>Payload JSON</span>
-        <textarea
-          className="code-textarea"
-          value={form.payload}
-          rows={10}
-          spellCheck={false}
-          onChange={(event) => onChange({ ...form, payload: event.target.value })}
-        />
-      </label>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={form.enabled}
-          onChange={(event) => onChange({ ...form, enabled: event.target.checked })}
-        />
-        <span>Enabled</span>
-      </label>
-      <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
-        <Send size={16} />
-        {submitting ? "Scheduling" : "Schedule Workflow"}
-      </button>
+
+      {form.jobType === "jobs.monitor.new_grad" && (
+        <div className="monitor-fields">
+          <label>
+            <span>Source</span>
+            <select value={sourceType} onChange={(event) => {
+              const type = event.target.value;
+              updatePayload({ sources: [{ type, company: source.company ?? "", [sourceIdentifierKey(type)]: "" }] });
+            }}>
+              <option value="greenhouse">Greenhouse</option>
+              <option value="lever">Lever</option>
+              <option value="ashby">Ashby</option>
+              <option value="workday">Workday</option>
+              <option value="custom">Custom feed</option>
+            </select>
+          </label>
+          <label>
+            <span>Company</span>
+            <input value={String(source.company ?? "")} onChange={(event) => updateSource({ company: event.target.value })} />
+          </label>
+          <label>
+            <span>Source identifier</span>
+            <input value={String(source[identifierKey] ?? "")} onChange={(event) => updateSource({ [identifierKey]: event.target.value })} />
+          </label>
+          <label>
+            <span>Minimum score</span>
+            <select value={Number(payload.min_score ?? 40)} onChange={(event) => updatePayload({ min_score: Number(event.target.value) })}>
+              <option value={20}>20+</option><option value={40}>40+</option><option value={60}>60+</option><option value={80}>80+</option>
+            </select>
+          </label>
+          <label className="workflow-wide-field">
+            <span>Match keywords</span>
+            <input value={payloadList(payload.keywords).join(", ")} onChange={(event) => updatePayload({ keywords: commaList(event.target.value) })} />
+          </label>
+          <label className="workflow-wide-field">
+            <span>Locations</span>
+            <input value={payloadList(payload.locations).join(", ")} onChange={(event) => updatePayload({ locations: commaList(event.target.value) })} />
+          </label>
+          <label className="workflow-wide-field">
+            <span>Exclude keywords</span>
+            <input value={payloadList(payload.excluded_keywords).join(", ")} onChange={(event) => updatePayload({ excluded_keywords: commaList(event.target.value) })} />
+          </label>
+          <label>
+            <span>Notifications</span>
+            <select value={String(payload.notification_mode ?? "daily")} onChange={(event) => updatePayload({ notification_mode: event.target.value })}>
+              <option value="immediate">Immediate</option><option value="daily">Daily digest</option><option value="none">None</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      <details className="advanced-payload">
+        <summary>Advanced JSON</summary>
+        <label>
+          <span>Payload JSON</span>
+          <textarea className="code-textarea" value={form.payload} rows={10} spellCheck={false} onChange={(event) => onChange({ ...form, payload: event.target.value })} />
+        </label>
+      </details>
+      <div className="workflow-actions">
+        <label className="checkbox-field">
+          <input type="checkbox" checked={form.enabled} onChange={(event) => onChange({ ...form, enabled: event.target.checked })} />
+          <span>Enabled</span>
+        </label>
+        <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
+          <Send size={16} />
+          {submitting ? "Scheduling" : "Schedule Workflow"}
+        </button>
+      </div>
     </form>
   );
 }
 
-function SubmitJobForm({
-  form,
-  submitting,
-  onChange,
-  onSubmit
-}: {
-  form: SubmitState;
-  submitting: boolean;
-  onChange: (value: SubmitState) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <form className="submit-form" onSubmit={onSubmit}>
-      <label>
-        <span>Name</span>
-        <input
-          value={form.name}
-          onChange={(event) => onChange({ ...form, name: event.target.value })}
-          placeholder="demo-transcode"
-        />
-      </label>
-      <label>
-        <span>Type</span>
-        <select value={form.type} onChange={(event) => onChange({ ...form, type: event.target.value })}>
-          <option value="video.transcode">video.transcode</option>
-          <option value="scrape.url">scrape.url</option>
-          <option value="python.script">python.script</option>
-          <option value="ai.inference">ai.inference</option>
-          <option value="data.pipeline">data.pipeline</option>
-          <option value="report.email">report.email</option>
-        </select>
-      </label>
-      <div className="field-row">
-        <label>
-          <span>Duration</span>
-          <input
-            type="number"
-            min={100}
-            max={30000}
-            step={100}
-            value={form.durationMs}
-            onChange={(event) => onChange({ ...form, durationMs: Number(event.target.value) })}
-          />
-        </label>
-        <label>
-          <span>Attempts</span>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={form.maxAttempts}
-            onChange={(event) => onChange({ ...form, maxAttempts: Number(event.target.value) })}
-          />
-        </label>
-      </div>
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={form.shouldFail}
-          onChange={(event) => onChange({ ...form, shouldFail: event.target.checked })}
-        />
-        <span>Simulate failure</span>
-      </label>
-      <button className="primary-button" type="submit" disabled={submitting || form.type.trim() === ""}>
-        <Send size={16} />
-        {submitting ? "Submitting" : "Submit Job"}
-      </button>
-    </form>
-  );
+function parseWorkflowPayload(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function payloadList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function commaList(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function sourceIdentifierKey(type: string) {
+  if (type === "greenhouse") return "board_token";
+  if (type === "lever") return "account_name";
+  if (type === "ashby") return "job_board_name";
+  if (type === "workday") return "endpoint";
+  return "url";
 }
 
 function SummaryCard({
@@ -1392,14 +1385,14 @@ function PostingFilterBar({
         <div>
           {priorityCompanies.map((company) => {
             const values = company.value.split(",").map((value) => value.trim().toLowerCase());
-            const active = values.every((value) => companyFilterValues(filters.company).includes(value));
+            const active = values.every((value) => filterValues(filters.company).includes(value));
             return (
               <button
                 className={active ? "active" : ""}
                 key={company.label}
                 type="button"
                 aria-pressed={active}
-                onClick={() => onChange({ ...filters, company: toggleCompanyFilter(filters.company, company.value) })}
+                onClick={() => onChange({ ...filters, company: toggleFilter(filters.company, company.value) })}
               >
                 {company.label}
               </button>
@@ -1412,16 +1405,36 @@ function PostingFilterBar({
         <div>
           {companyGroups.map((group) => {
             const values = group.value.split(",").map((value) => value.trim().toLowerCase());
-            const active = values.every((value) => companyFilterValues(filters.company).includes(value));
+            const active = values.every((value) => filterValues(filters.company).includes(value));
             return (
               <button
                 className={active ? "active" : ""}
                 key={group.label}
                 type="button"
                 aria-pressed={active}
-                onClick={() => onChange({ ...filters, company: toggleCompanyFilter(filters.company, group.value) })}
+                onClick={() => onChange({ ...filters, company: toggleFilter(filters.company, group.value) })}
               >
                 {group.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="priority-company-filter" aria-label="Metro area filters">
+        <span>Metro areas</span>
+        <div>
+          {metroAreas.map((metro) => {
+            const values = metro.value.split(",").map((value) => value.trim().toLowerCase());
+            const active = values.every((value) => filterValues(filters.location).includes(value));
+            return (
+              <button
+                className={active ? "active" : ""}
+                key={metro.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onChange({ ...filters, location: toggleFilter(filters.location, metro.value) })}
+              >
+                {metro.label}
               </button>
             );
           })}
@@ -1431,29 +1444,29 @@ function PostingFilterBar({
   );
 }
 
-function companyFilterValues(value: string) {
+function filterValues(value: string) {
   return value
     .split(",")
-    .map((company) => company.trim().toLowerCase())
+    .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
 }
 
-function toggleCompanyFilter(value: string, company: string) {
-  const companies = value
+function toggleFilter(value: string, toggledValue: string) {
+  const values = value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-  const toggled = company.split(",").map((item) => item.trim());
-  const allActive = toggled.every((item) => companies.some((companyValue) => companyValue.toLowerCase() === item.toLowerCase()));
+  const toggled = toggledValue.split(",").map((item) => item.trim());
+  const allActive = toggled.every((item) => values.some((currentValue) => currentValue.toLowerCase() === item.toLowerCase()));
   for (const item of toggled) {
-    const index = companies.findIndex((companyValue) => companyValue.toLowerCase() === item.toLowerCase());
+    const index = values.findIndex((currentValue) => currentValue.toLowerCase() === item.toLowerCase());
     if (allActive && index >= 0) {
-      companies.splice(index, 1);
+      values.splice(index, 1);
     } else if (!allActive && index < 0) {
-      companies.push(item);
+      values.push(item);
     }
   }
-  return companies.join(", ");
+  return values.join(", ");
 }
 
 function PostingsTable({ postings, loading }: { postings: Posting[]; loading: boolean }) {
@@ -1472,7 +1485,6 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
             <th>Role</th>
             <th>Company</th>
             <th>Location</th>
-            <th>Source</th>
             <th>Score</th>
             <th>Reasons</th>
             <th>Matched</th>
@@ -1494,7 +1506,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                   </strong>
                 </td>
                 <td className="posting-company">
-                  <span>{posting.company}</span>
+                  <strong className="posting-company-name">{posting.company}</strong>
                   {isEarlyStage && <span className="company-stage-badge">Early stage</span>}
                 </td>
                 <td className="posting-location">
@@ -1506,9 +1518,6 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                   ) : (
                     "-"
                   )}
-                </td>
-                <td className="posting-source" title={posting.source_id || posting.id}>
-                  <strong>{formatPostingSource(posting.source)}</strong>
                 </td>
                 <td className="posting-score">
                   <span className="score-badge">{posting.match_score ?? 0}</span>
@@ -1526,7 +1535,10 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                     "-"
                   )}
                 </td>
-                <td>{relativeTime(posting.matched_at ?? posting.first_seen_at)}</td>
+                <td className="posting-matched">
+                  {relativeTime(posting.matched_at ?? posting.first_seen_at)}
+                  <span title={posting.source_id || posting.id}>{formatPostingSource(posting.source)}</span>
+                </td>
               </tr>
             );
           })}
