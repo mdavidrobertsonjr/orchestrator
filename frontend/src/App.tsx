@@ -169,6 +169,30 @@ const priorityCompanies = [
   { label: "Robinhood", value: "Robinhood" }
 ];
 
+const companyGroups = [
+  {
+    label: "Startups",
+    value: "Cursor, Perplexity, Modal, Baseten, Confido, Zettabyte, Cockroach Labs, Astranis, Relativity Space"
+  },
+  {
+    label: "Larger companies",
+    value: "OpenAI, Anthropic, Palantir, SpaceX, Starlink, Databricks, Cloudflare, MongoDB, Stripe, Robinhood"
+  },
+  {
+    label: "AI & infrastructure",
+    value: "OpenAI, Anthropic, xAI, Databricks, Scale AI, Cursor, Perplexity, Modal, Baseten, Zettabyte, Cloudflare, MongoDB, Cockroach Labs"
+  },
+  {
+    label: "Defense & space",
+    value: "Anduril, SpaceX, Starlink, Astranis, Zipline, Relativity Space"
+  },
+  {
+    label: "Developer tools",
+    value: "Notion, Figma, Vercel, Linear, Replit"
+  },
+  { label: "Fintech", value: "Stripe, Ramp, Plaid, Robinhood" }
+];
+
 const initialWorkflowForm: WorkflowFormState = {
   name: "datadog-new-grad-monitor",
   jobType: "jobs.monitor.new_grad",
@@ -1370,6 +1394,26 @@ function PostingFilterBar({
                 onClick={() => onChange({ ...filters, company: toggleCompanyFilter(filters.company, company.value) })}
               >
                 {company.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="priority-company-filter" aria-label="Company group filters">
+        <span>Company groups</span>
+        <div>
+          {companyGroups.map((group) => {
+            const values = group.value.split(",").map((value) => value.trim().toLowerCase());
+            const active = values.every((value) => companyFilterValues(filters.company).includes(value));
+            return (
+              <button
+                className={active ? "active" : ""}
+                key={group.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onChange({ ...filters, company: toggleCompanyFilter(filters.company, group.value) })}
+              >
+                {group.label}
               </button>
             );
           })}
