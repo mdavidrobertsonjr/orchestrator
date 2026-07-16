@@ -273,7 +273,7 @@ export function App() {
       setWorkers(nextWorkers);
       setQueue(nextQueue);
       setMetrics(nextMetrics);
-      setPostings(nextPostings);
+      setPostings(sortPostings(nextPostings));
       setWorkflows(nextWorkflows);
       setWorkflowRuns(nextRuns);
       setResults(nextResults);
@@ -1679,6 +1679,16 @@ function WorkerPill({ status }: { status: WorkerStatus }) {
 
 function EmptyState({ label }: { label: string }) {
   return <div className="empty-state">{label}</div>;
+}
+
+function sortPostings(items: Posting[]) {
+  return [...items].sort((a, b) => {
+    const scoreDelta = (b.match_score ?? 0) - (a.match_score ?? 0);
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
+    return new Date(b.first_seen_at).getTime() - new Date(a.first_seen_at).getTime();
+  });
 }
 
 function groupJobsByWorkflow(jobs: Job[]): JobTableRow[] {
