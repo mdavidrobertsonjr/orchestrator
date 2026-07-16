@@ -72,7 +72,7 @@ Per-source resiliency controls:
 }
 ```
 
-The included seed script creates hourly monitors for Anduril, Palantir, Stripe, OpenAI, Anthropic, Databricks, Ramp, Figma, Plaid, Perplexity, Scale AI, Cursor, xAI, Vercel, Linear, Replit, Modal, and Baseten.
+The included seed script creates hourly monitors for Anduril, Palantir, Stripe, OpenAI, Anthropic, Databricks, Ramp, Figma, Plaid, Perplexity, Scale AI, Cursor, xAI, Vercel, Linear, Replit, Modal, Baseten, SpaceX/Starlink, Notion, and Robinhood.
 
 Existing low-signal postings can be reviewed with a dry-run prune:
 

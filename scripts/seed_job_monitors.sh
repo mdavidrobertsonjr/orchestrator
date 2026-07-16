@@ -79,5 +79,12 @@ create_monitor "replit" "Replit" "ashby" "job_board_name" "replit"
 create_monitor "modal" "Modal" "ashby" "job_board_name" "modal"
 create_monitor "baseten" "Baseten" "ashby" "job_board_name" "baseten"
 
+# Selective aerospace and product-engineering companies with verified public ATS feeds.
+# SpaceX's board includes Starlink roles under the same Greenhouse token.
+create_monitor "spacex-starlink" "SpaceX / Starlink" "greenhouse" "board_token" "spacex" \
+  '["hawthorne", "bastrop", "redmond", "sunnyvale", "starbase", "cape canaveral", "remote"]'
+create_monitor "notion" "Notion" "ashby" "job_board_name" "notion"
+create_monitor "robinhood" "Robinhood" "greenhouse" "board_token" "robinhood"
+
 echo "Seeded job monitors."
 echo "Use the Workflows dashboard or POST /v1/workflows/<id>/run to run one immediately."

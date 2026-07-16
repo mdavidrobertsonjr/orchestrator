@@ -158,6 +158,15 @@ const defaultPostingFilters: PostingFilterState = {
   pageSize: 200
 };
 
+const priorityCompanies = [
+  { label: "Palantir", value: "Palantir" },
+  { label: "Anduril", value: "Anduril" },
+  { label: "OpenAI", value: "OpenAI" },
+  { label: "SpaceX / Starlink", value: "SpaceX, Starlink" },
+  { label: "Notion", value: "Notion" },
+  { label: "Robinhood", value: "Robinhood" }
+];
+
 const initialWorkflowForm: WorkflowFormState = {
   name: "datadog-new-grad-monitor",
   jobType: "jobs.monitor.new_grad",
@@ -1268,7 +1277,7 @@ function PostingFilterBar({
         <input
           value={filters.q}
           onChange={(event) => onChange({ ...filters, q: event.target.value })}
-          placeholder="new grad software engineer"
+          placeholder="Show me OpenAI new grad software jobs"
         />
       </label>
       <label>
@@ -1330,8 +1339,53 @@ function PostingFilterBar({
           Apply
         </button>
       </div>
+      <div className="priority-company-filter" aria-label="Priority company filters">
+        <span>Priority companies</span>
+        <div>
+          {priorityCompanies.map((company) => {
+            const values = company.value.split(",").map((value) => value.trim().toLowerCase());
+            const active = values.every((value) => companyFilterValues(filters.company).includes(value));
+            return (
+              <button
+                className={active ? "active" : ""}
+                key={company.label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onChange({ ...filters, company: toggleCompanyFilter(filters.company, company.value) })}
+              >
+                {company.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </form>
   );
+}
+
+function companyFilterValues(value: string) {
+  return value
+    .split(",")
+    .map((company) => company.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function toggleCompanyFilter(value: string, company: string) {
+  const companies = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const toggled = company.split(",").map((item) => item.trim());
+  const allActive = toggled.every((item) => companies.some((companyValue) => companyValue.toLowerCase() === item.toLowerCase()));
+  for (const item of toggled) {
+    const index = companies.findIndex((companyValue) => companyValue.toLowerCase() === item.toLowerCase());
+    if (allActive && index >= 0) {
+      companies.splice(index, 1);
+    } else if (!allActive && index < 0) {
+      companies.push(item);
+    }
+  }
+  return companies.join(", ");
 }
 
 function PostingsTable({ postings, loading }: { postings: Posting[]; loading: boolean }) {
