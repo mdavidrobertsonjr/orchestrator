@@ -110,5 +110,21 @@ create_monitor "zettabyte" "Zettabyte" "ashby" "job_board_name" "zettabyte-space
 create_monitor "whoop" "WHOOP" "lever" "account_name" "whoop" \
   '["boston", "remote"]'
 
+# High-upside early-career and new-grad boards. Some may have no matching role
+# today; keeping the monitor active catches the next opening as it is published.
+create_monitor "kernel" "Kernel" "ashby" "job_board_name" "usekernel"
+create_monitor "foxglove" "Foxglove" "ashby" "job_board_name" "foxglove" \
+  '["san francisco", "remote"]'
+create_monitor "benchling" "Benchling" "ashby" "job_board_name" "benchling" \
+  '["san francisco", "remote"]'
+create_monitor "hipp-health" "Hipp Health" "ashby" "job_board_name" "hipp" \
+  '["remote", "united states"]'
+create_monitor "hifi" "HIFI" "ashby" "job_board_name" "hifi" \
+  '["new york", "nyc", "remote"]'
+create_monitor "mirage" "Mirage" "ashby" "job_board_name" "mirage" \
+  '["new york", "nyc"]'
+create_monitor "meshy" "Meshy" "ashby" "job_board_name" "meshy" \
+  '["san francisco", "seattle", "new york", "vancouver", "toronto", "remote"]'
+
 echo "Seeded job monitors."
 echo "Use the Workflows dashboard or POST /v1/workflows/<id>/run to run one immediately."
