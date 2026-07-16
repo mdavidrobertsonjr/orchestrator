@@ -238,17 +238,25 @@ func postingsListWhere(params ListParams) (string, []any) {
 		return fmt.Sprintf("$%d", len(args))
 	}
 
-	if company := strings.ToLower(strings.TrimSpace(params.Company)); company != "" {
-		placeholder := addArg(company)
-		clauses = append(clauses, "lower(company) LIKE '%' || "+placeholder+" || '%'")
+	if companies := FilterTerms(params.Company); len(companies) > 0 {
+		var companyClauses []string
+		for _, company := range companies {
+			placeholder := addArg(company)
+			companyClauses = append(companyClauses, "lower(company) LIKE '%' || "+placeholder+" || '%'")
+		}
+		clauses = append(clauses, "("+strings.Join(companyClauses, " OR ")+")")
 	}
 	if source := strings.ToLower(strings.TrimSpace(params.Source)); source != "" {
 		placeholder := addArg(source)
 		clauses = append(clauses, "lower(source) = "+placeholder)
 	}
-	if location := strings.ToLower(strings.TrimSpace(params.Location)); location != "" {
-		placeholder := addArg(location)
-		clauses = append(clauses, "lower(location) LIKE '%' || "+placeholder+" || '%'")
+	if locations := FilterTerms(params.Location); len(locations) > 0 {
+		var locationClauses []string
+		for _, location := range locations {
+			placeholder := addArg(location)
+			locationClauses = append(locationClauses, "lower(location) LIKE '%' || "+placeholder+" || '%'")
+		}
+		clauses = append(clauses, "("+strings.Join(locationClauses, " OR ")+")")
 	}
 	if params.MinScore > 0 {
 		placeholder := addArg(params.MinScore)

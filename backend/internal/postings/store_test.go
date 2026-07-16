@@ -158,6 +158,19 @@ func TestMatchesQueryUsesOrWithinConceptsAndAndAcrossConcepts(t *testing.T) {
 	}
 }
 
+func TestFilterTermsMatchCommaSeparatedValues(t *testing.T) {
+	terms := FilterTerms(" Palantir, Stripe\nOpenAI,Stripe ")
+	if len(terms) != 3 || terms[0] != "palantir" || terms[1] != "stripe" || terms[2] != "openai" {
+		t.Fatalf("unexpected filter terms: %#v", terms)
+	}
+	if !MatchesAnyFilterTerm("Stripe", terms) {
+		t.Fatal("expected Stripe to match comma-separated terms")
+	}
+	if MatchesAnyFilterTerm("Ramp", terms) {
+		t.Fatal("expected Ramp to be rejected")
+	}
+}
+
 func TestMemoryStoreNotFound(t *testing.T) {
 	store := NewMemoryStore()
 

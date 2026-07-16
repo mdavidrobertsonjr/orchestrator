@@ -48,6 +48,23 @@ func QueryGroups(query string) [][]string {
 	return groups
 }
 
+func FilterTerms(value string) []string {
+	parts := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return r == ',' || r == '\n'
+	})
+	terms := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		term := strings.TrimSpace(part)
+		if term == "" || seen[term] {
+			continue
+		}
+		terms = append(terms, term)
+		seen[term] = true
+	}
+	return terms
+}
+
 func MatchesQuery(query string, fields ...string) bool {
 	groups := QueryGroups(query)
 	if len(groups) == 0 {
@@ -65,6 +82,19 @@ func MatchesQuery(query string, fields ...string) bool {
 func matchesAnyTerm(haystack string, terms []string) bool {
 	for _, term := range terms {
 		if strings.Contains(haystack, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func MatchesAnyFilterTerm(value string, terms []string) bool {
+	if len(terms) == 0 {
+		return true
+	}
+	value = strings.ToLower(value)
+	for _, term := range terms {
+		if strings.Contains(value, term) {
 			return true
 		}
 	}

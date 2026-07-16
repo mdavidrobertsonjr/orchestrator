@@ -261,7 +261,7 @@ func TestListPostingsFiltersAndPaginates(t *testing.T) {
 		t.Fatalf("upsert posting: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/postings?source=ashby&min_score=20&q=new+grad+early+software+engineering&page_size=10&page=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/postings?source=ashby&min_score=20&q=new+grad+early+software+engineering&company=OpenAI,Datadog&location=San+Francisco,New+York&page_size=10&page=1", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

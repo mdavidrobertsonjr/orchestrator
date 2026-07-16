@@ -1498,21 +1498,21 @@ func filterJobs(items []*jobs.Job, r *http.Request) []*jobs.Job {
 }
 
 func filterPostings(items []*postings.Posting, r *http.Request) []*postings.Posting {
-	company := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("company")))
+	companies := postings.FilterTerms(r.URL.Query().Get("company"))
 	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
-	location := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("location")))
+	locations := postings.FilterTerms(r.URL.Query().Get("location"))
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	minScore := queryInt(r, "min_score")
 
 	out := items[:0]
 	for _, posting := range items {
-		if company != "" && !strings.Contains(strings.ToLower(posting.Company), company) {
+		if !postings.MatchesAnyFilterTerm(posting.Company, companies) {
 			continue
 		}
 		if source != "" && strings.ToLower(posting.Source) != source {
 			continue
 		}
-		if location != "" && !strings.Contains(strings.ToLower(posting.Location), location) {
+		if !postings.MatchesAnyFilterTerm(posting.Location, locations) {
 			continue
 		}
 		if minScore > 0 && posting.MatchScore < minScore {
