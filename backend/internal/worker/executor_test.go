@@ -374,6 +374,19 @@ func TestSimulatedExecutorUsesDefaultMonitorAlertRecipients(t *testing.T) {
 	if sender.messages[0].Recipients[0] != "default@example.com" {
 		t.Fatalf("unexpected recipients: %#v", sender.messages[0].Recipients)
 	}
+	if sender.messages[0].Subject != "New match: Datadog — Software Engineer, New Grad" {
+		t.Fatalf("unexpected subject: %q", sender.messages[0].Subject)
+	}
+	for _, expected := range []string{
+		"Software Engineer, New Grad",
+		"Company: Datadog",
+		"Location: New York, NY",
+		"Apply: https://example.com/datadog/new-grad",
+	} {
+		if !strings.Contains(sender.messages[0].Body, expected) {
+			t.Fatalf("expected alert body to contain %q, got %q", expected, sender.messages[0].Body)
+		}
+	}
 }
 
 func TestSimulatedExecutorSendsMonitorDigestReport(t *testing.T) {

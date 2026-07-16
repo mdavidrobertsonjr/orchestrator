@@ -75,10 +75,11 @@ type Notifications struct {
 }
 
 type Result struct {
-	Scanned int
-	Matched int
-	Created int
-	Updated int
+	Scanned     int
+	Matched     int
+	Created     int
+	Updated     int
+	NewPostings []*postings.Posting
 }
 
 func NewRunner(store postings.Store, sources map[string]Source) *Runner {
@@ -173,6 +174,7 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 			result.Matched++
 			if isNew {
 				result.Created++
+				result.NewPostings = append(result.NewPostings, posting)
 				log(logf, fmt.Sprintf("new matching posting: %s - %s (%s)", posting.Company, posting.Title, posting.URL))
 			} else {
 				result.Updated++

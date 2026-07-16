@@ -223,7 +223,7 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 
 	message := email.Message{
 		Recipients: config.recipients,
-		Subject:    fmt.Sprintf("New job monitor matches: %d", result.Created),
+		Subject:    monitorAlertSubject(result),
 		Body:       monitorAlertBody(job, result),
 		Metadata: map[string]string{
 			"kind": "monitor_alert",
@@ -351,14 +351,40 @@ func cleanRecipients(recipients []string) []string {
 	return out
 }
 
+func monitorAlertSubject(result *monitor.Result) string {
+	if result != nil && len(result.NewPostings) == 1 {
+		posting := result.NewPostings[0]
+		return fmt.Sprintf("New match: %s — %s", posting.Company, posting.Title)
+	}
+	if result != nil && len(result.NewPostings) > 1 {
+		return fmt.Sprintf("%d new job matches — %s and more", len(result.NewPostings), result.NewPostings[0].Company)
+	}
+	if result == nil {
+		return "New job match"
+	}
+	return fmt.Sprintf("%d new job matches", result.Created)
+}
+
 func monitorAlertBody(job *jobs.Job, result *monitor.Result) string {
-	return fmt.Sprintf("Workflow monitor found new postings.\n\nJob: %s\nScanned: %d\nMatched: %d\nNew: %d\nUpdated: %d\n",
-		job.ID,
-		result.Scanned,
-		result.Matched,
-		result.Created,
-		result.Updated,
-	)
+	var body strings.Builder
+	body.WriteString("New matching job postings were discovered.\n\n")
+	for index, posting := range result.NewPostings {
+		fmt.Fprintf(&body, "%d. %s\n", index+1, posting.Title)
+		fmt.Fprintf(&body, "Company: %s\n", posting.Company)
+		if strings.TrimSpace(posting.Location) != "" {
+			fmt.Fprintf(&body, "Location: %s\n", posting.Location)
+		}
+		fmt.Fprintf(&body, "Match score: %d\n", posting.MatchScore)
+		if len(posting.MatchReasons) > 0 {
+			fmt.Fprintf(&body, "Matched because: %s\n", strings.Join(posting.MatchReasons, ", "))
+		}
+		fmt.Fprintf(&body, "Apply: %s\n\n", posting.URL)
+	}
+	fmt.Fprintf(&body, "Run summary: scanned %d, matched %d, new %d, updated %d.\n", result.Scanned, result.Matched, result.Created, result.Updated)
+	if job != nil {
+		fmt.Fprintf(&body, "Job: %s\n", job.ID)
+	}
+	return body.String()
 }
 
 func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.Result, alertSent bool, logf func(string)) error {
