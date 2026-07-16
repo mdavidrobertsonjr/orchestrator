@@ -1380,20 +1380,18 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                     "-"
                   )}
                 </td>
-                <td className="posting-source">
-                  <strong>{posting.source}</strong>
-                  <span>{posting.source_id || posting.id.slice(0, 12)}</span>
+                <td className="posting-source" title={posting.source_id || posting.id}>
+                  <strong>{formatPostingSource(posting.source)}</strong>
                 </td>
                 <td className="posting-score">
-                  <strong>{posting.match_score ?? 0}</strong>
-                  <span>pts</span>
+                  <span className="score-badge">{posting.match_score ?? 0}</span>
                 </td>
                 <td>
                   {reasons.length > 0 ? (
                     <div className="reason-list">
                       {reasons.slice(0, 4).map((reason) => (
                         <span className="reason-pill" key={reason}>
-                          {reason}
+                          {formatPostingReason(reason)}
                         </span>
                       ))}
                     </div>
@@ -1416,6 +1414,20 @@ function splitPostingLocations(location?: string) {
     .split(";")
     .map((part) => part.trim())
     .filter(Boolean);
+}
+
+function formatPostingSource(source: string) {
+  return source ? source.charAt(0).toUpperCase() + source.slice(1).toLowerCase() : "Unknown";
+}
+
+function formatPostingReason(reason: string) {
+  const [category, ...valueParts] = reason.split(":");
+  const value = valueParts.join(":").trim();
+  if (!value) {
+    return reason;
+  }
+  const label = category.trim().replaceAll("_", " ");
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)} · ${value}`;
 }
 
 function WorkflowsTable({
