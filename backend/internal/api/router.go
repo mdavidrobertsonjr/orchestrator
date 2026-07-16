@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -468,12 +470,16 @@ func (s *Server) handleCreateNaturalCommand(w http.ResponseWriter, r *http.Reque
 	}
 
 	if plan.Action == "workflow" {
-		workflow, err := s.createPlannedWorkflowValue(&plan.Workflow)
+		workflow, created, err := s.createPlannedWorkflowValue(&plan.Workflow, req.Prompt)
 		if err != nil {
 			s.writeCreateWorkflowError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, naturalCommandResponse{Action: "workflow", Workflow: workflow})
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
+		writeJSON(w, status, naturalCommandResponse{Action: "workflow", Workflow: workflow})
 		return
 	}
 
@@ -1071,16 +1077,38 @@ func (s *Server) handleCreateNaturalWorkflow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	workflow, err := s.createPlannedWorkflowValue(plan)
+	workflow, created, err := s.createPlannedWorkflowValue(plan, req.Prompt)
 	if err != nil {
 		s.writeCreateWorkflowError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, workflow)
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, workflow)
 }
 
-func (s *Server) createPlannedWorkflowValue(plan *llm.WorkflowPlan) (*workflows.Workflow, error) {
+func (s *Server) createPlannedWorkflowValue(plan *llm.WorkflowPlan, prompt string) (*workflows.Workflow, bool, error) {
+	if plan.Metadata == nil {
+		plan.Metadata = map[string]string{}
+	}
+	plan.Metadata["natural_request_key"] = naturalRequestKey(prompt)
+	existing, err := s.workflows.List()
+	if err != nil {
+		s.logger.Error("failed to check for existing natural workflow", "error", err)
+		return nil, false, errCreateWorkflow
+	}
+	identity := plannedWorkflowIdentity(plan.JobType, plan.IntervalSeconds, plan.Payload)
+	for _, workflow := range existing {
+		if workflow.Metadata["natural_request_key"] == plan.Metadata["natural_request_key"] ||
+			plannedWorkflowIdentity(workflow.JobType, workflow.IntervalSeconds, workflow.Payload) == identity {
+			s.logger.Info("reused existing natural workflow", "workflow_id", workflow.ID)
+			return workflow, false, nil
+		}
+	}
+
 	workflow, err := s.workflows.Create(workflows.CreateWorkflowParams{
 		Name:            plan.Name,
 		JobType:         plan.JobType,
@@ -1092,11 +1120,34 @@ func (s *Server) createPlannedWorkflowValue(plan *llm.WorkflowPlan) (*workflows.
 	})
 	if err != nil {
 		s.logger.Error("failed to create planned workflow", "error", err)
-		return nil, errCreateWorkflow
+		return nil, false, errCreateWorkflow
 	}
 
 	s.logger.Info("natural workflow created", "workflow_id", workflow.ID, "job_type", workflow.JobType)
-	return workflow, nil
+	return workflow, true, nil
+}
+
+func naturalRequestKey(prompt string) string {
+	normalized := strings.Join(strings.Fields(strings.ToLower(prompt)), " ")
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(normalized)))
+}
+
+func plannedWorkflowIdentity(jobType string, intervalSeconds int, payload map[string]any) string {
+	parts := []string{strings.ToLower(strings.TrimSpace(jobType)), strconv.Itoa(intervalSeconds)}
+	for _, key := range []string{"sources", "keywords", "excluded_keywords", "locations", "min_score"} {
+		value, _ := json.Marshal(payload[key])
+		parts = append(parts, key+":"+string(value))
+	}
+	if sources, ok := payload["sources"].([]any); ok {
+		encoded := make([]string, 0, len(sources))
+		for _, source := range sources {
+			value, _ := json.Marshal(source)
+			encoded = append(encoded, string(value))
+		}
+		sort.Strings(encoded)
+		parts[2] = "sources:" + strings.Join(encoded, ",")
+	}
+	return strings.Join(parts, "|")
 }
 
 func (s *Server) writeCreateWorkflowError(w http.ResponseWriter, err error) {

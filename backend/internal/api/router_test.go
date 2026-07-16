@@ -446,6 +446,16 @@ func TestCreateNaturalCommandCreatesWorkflow(t *testing.T) {
 	if response.Workflow.Metadata["submitted_with"] != "natural_language" {
 		t.Fatalf("expected natural language metadata, got %#v", response.Workflow.Metadata)
 	}
+
+	second := httptest.NewRecorder()
+	router.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/v1/commands/natural", bytes.NewBufferString(`{"prompt":"  MONITOR Datadog roles every day  "}`)))
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected duplicate status %d, got %d with body %s", http.StatusOK, second.Code, second.Body.String())
+	}
+	stored, err := workflowStore.List()
+	if err != nil || len(stored) != 1 {
+		t.Fatalf("expected one idempotent workflow, got %#v, %v", stored, err)
+	}
 }
 
 func TestCreateNaturalCommandQueuesJob(t *testing.T) {
