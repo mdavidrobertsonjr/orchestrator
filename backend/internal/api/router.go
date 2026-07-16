@@ -737,7 +737,7 @@ func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 		}
 	}
 
-	for _, worker := range s.workers.List() {
+	for _, worker := range normalizedWorkers(s.workers.List(), now) {
 		response.Workers.Total++
 		response.Workers.ByStatus[string(worker.Status)]++
 		if worker.Status != workers.StatusStopped {
@@ -910,8 +910,23 @@ func writePromMetric(out *bytes.Buffer, name string, labels map[string]string, v
 
 func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"workers": s.workers.List(),
+		"workers": normalizedWorkers(s.workers.List(), time.Now().UTC()),
 	})
+}
+
+const workerStaleAfter = 30 * time.Second
+
+func normalizedWorkers(items []*workers.Worker, now time.Time) []*workers.Worker {
+	for _, worker := range items {
+		if worker == nil || worker.Status == workers.StatusStopped || worker.LastHeartbeat.IsZero() {
+			continue
+		}
+		if now.Sub(worker.LastHeartbeat) > workerStaleAfter {
+			worker.Status = workers.StatusStopped
+			worker.CurrentJobID = ""
+		}
+	}
+	return items
 }
 
 func (s *Server) handleListPostings(w http.ResponseWriter, r *http.Request) {

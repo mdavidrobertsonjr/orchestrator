@@ -1491,6 +1491,26 @@ func testRouterWithWorkflows(workflowStore workflows.Store) http.Handler {
 	})
 }
 
+func TestNormalizedWorkersMarksStaleHeartbeatStopped(t *testing.T) {
+	now := time.Now().UTC()
+	items := []*workers.Worker{
+		{ID: "current", Status: workers.StatusIdle, LastHeartbeat: now.Add(-5 * time.Second)},
+		{ID: "stale", Status: workers.StatusRunning, CurrentJobID: "old-job", LastHeartbeat: now.Add(-time.Minute)},
+		{ID: "stopped", Status: workers.StatusStopped, LastHeartbeat: now.Add(-time.Hour)},
+	}
+
+	normalized := normalizedWorkers(items, now)
+	if normalized[0].Status != workers.StatusIdle {
+		t.Fatalf("expected current worker to stay idle, got %q", normalized[0].Status)
+	}
+	if normalized[1].Status != workers.StatusStopped || normalized[1].CurrentJobID != "" {
+		t.Fatalf("expected stale worker to be stopped, got %#v", normalized[1])
+	}
+	if normalized[2].Status != workers.StatusStopped {
+		t.Fatalf("expected stopped worker to remain stopped, got %q", normalized[2].Status)
+	}
+}
+
 func testRouterWithResults(resultStore results.Store) http.Handler {
 	return NewRouter(Config{
 		Queue:   jobs.NewMemoryQueue(2),
