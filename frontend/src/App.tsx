@@ -535,7 +535,7 @@ export function App() {
           <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
         </Panel>
         <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
-          <SourceHealthPanel results={sourceHealthResults} loading={loading} onSelectJob={setSelectedJobID} />
+          <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
       </section>
       <section className="dashboard-grid">
@@ -559,7 +559,7 @@ export function App() {
           <RuntimeMetricsPanel metrics={metrics} loading={loading} />
         </Panel>
         <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
-          <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
+          <ResultsTable results={results} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
         <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
           {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
@@ -618,10 +618,10 @@ export function App() {
     results: (
       <section className="split-view">
         <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
-          <ResultsTable results={results} loading={loading} onSelectJob={setSelectedJobID} />
+          <ResultsTable results={results} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
         <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
-          <SourceHealthPanel results={sourceHealthResults} loading={loading} onSelectJob={setSelectedJobID} />
+          <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
       </section>
     ),
@@ -917,10 +917,12 @@ function OperationalAlertsPanel({ alerts, loading }: { alerts: OperationalAlert[
 
 function SourceHealthPanel({
   results,
+  jobs,
   loading,
   onSelectJob
 }: {
   results: Result[];
+  jobs: Job[];
   loading: boolean;
   onSelectJob: (id: string) => void;
 }) {
@@ -928,30 +930,33 @@ function SourceHealthPanel({
     return <EmptyState label="Loading source health" />;
   }
   if (results.length === 0) {
-    return <EmptyState label="No source failures recorded" />;
+    return <EmptyState label="No source events recorded" />;
   }
 
   return (
     <div className="signal-list">
-      {results.map((result) => (
-        <div className="source-health-row" key={result.id}>
-          <div>
-            <strong>{String(result.data?.status ?? "source event")}</strong>
-            <span>{result.summary || result.id.slice(0, 12)}</span>
-            {Array.isArray(result.data?.sources) && result.data.sources.length > 0 && (
-              <small>{result.data.sources.map(String).join(", ")}</small>
-            )}
+      {results.map((result) => {
+        const recovered = isRecoveredSourceHealth(result, jobs);
+        return (
+          <div className={`source-health-row ${recovered ? "recovered" : "failed"}`} key={result.id}>
+            <div>
+              <strong>{recovered ? "Recovered after retry" : String(result.data?.status ?? "source event")}</strong>
+              <span>{result.summary || result.id.slice(0, 12)}</span>
+              {Array.isArray(result.data?.sources) && result.data.sources.length > 0 && (
+                <small>{result.data.sources.map(String).join(", ")}</small>
+              )}
+            </div>
+            <div className="source-health-actions">
+              <span>{relativeTime(result.created_at)}</span>
+              {result.job_id && (
+                <button className="link-button" type="button" onClick={() => onSelectJob(result.job_id as string)}>
+                  Job
+                </button>
+              )}
+            </div>
           </div>
-          <div className="source-health-actions">
-            <span>{relativeTime(result.created_at)}</span>
-            {result.job_id && (
-              <button className="link-button" type="button" onClick={() => onSelectJob(result.job_id as string)}>
-                Job
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1689,10 +1694,12 @@ function WorkflowsTable({
 
 function ResultsTable({
   results,
+  jobs,
   loading,
   onSelectJob
 }: {
   results: Result[];
+  jobs: Job[];
   loading: boolean;
   onSelectJob: (id: string) => void;
 }) {
@@ -1720,7 +1727,9 @@ function ResultsTable({
             <tr key={result.id}>
               <td>
                 <strong>{result.type}</strong>
-                <span>{result.summary || result.id.slice(0, 12)}</span>
+                <span>
+                  {isRecoveredSourceHealth(result, jobs) ? "Recovered after retry" : result.summary || result.id.slice(0, 12)}
+                </span>
               </td>
               <td>{result.workflow_id ? result.workflow_id.slice(0, 12) : "-"}</td>
               <td>
@@ -1753,6 +1762,13 @@ function ResultsTable({
       </table>
     </div>
   );
+}
+
+function isRecoveredSourceHealth(result: Result, jobs: Job[]) {
+  if (result.type !== "monitor.source_health" || result.data?.status !== "failed" || !result.job_id) {
+    return false;
+  }
+  return jobs.some((job) => job.id === result.job_id && job.status === "succeeded");
 }
 
 function JobDetail({ job, results }: { job: Job; results: Result[] }) {

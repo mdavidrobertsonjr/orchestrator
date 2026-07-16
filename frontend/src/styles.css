@@ -988,6 +988,24 @@ textarea {
   text-transform: capitalize;
 }
 
+.source-health-row.recovered {
+  background: #f0fbf5;
+  border-color: #b8e2cb;
+}
+
+.source-health-row.recovered strong {
+  color: #116c49;
+}
+
+.source-health-row.failed {
+  background: #fff4f4;
+  border-color: #e5a7a7;
+}
+
+.source-health-row.failed strong {
+  color: #9f1f18;
+}
+
 .source-health-row small {
   overflow-wrap: anywhere;
 }
