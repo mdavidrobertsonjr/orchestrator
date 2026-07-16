@@ -76,6 +76,9 @@ func TestOpenAIPlannerParsesWorkflowResponse(t *testing.T) {
 		if req.Text.Format.Name != "workflow_plan" {
 			t.Fatalf("expected workflow_plan schema, got %q", req.Text.Format.Name)
 		}
+		if req.Text.Format.Strict {
+			t.Fatal("expected workflow schema to allow job-type-specific payloads")
+		}
 
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -118,6 +121,9 @@ func TestOpenAIPlannerParsesCommandResponse(t *testing.T) {
 		}
 		if req.Text.Format.Name != "command_plan" {
 			t.Fatalf("expected command_plan schema, got %q", req.Text.Format.Name)
+		}
+		if req.Text.Format.Strict {
+			t.Fatal("expected command plan schema to allow job-type-specific workflow payloads")
 		}
 
 		return &http.Response{

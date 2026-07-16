@@ -186,7 +186,7 @@ func (p *OpenAIPlanner) PlanWorkflow(ctx context.Context, prompt string) (*Workf
 		Input: []responseInput{
 			{
 				Role:    "system",
-				Content: "Convert the user's request into one recurring orchestrator workflow. Use only these job types: jobs.monitor.new_grad, report.email, video.transcode, scrape.url, data.pipeline. Prefer jobs.monitor.new_grad for requests about monitoring new-grad software engineering roles. For Greenhouse sources, use objects with type greenhouse, company, and board_token. For Lever sources, use objects with type lever, company, and account_name. For Ashby sources, use objects with type ashby, company, and job_board_name. Use lowercase board_token/account_name/job_board_name values inferred from company names when obvious. Defaults: enabled true, max_attempts 2, interval_seconds 86400 for daily, 3600 for hourly, 900 for frequent/near real-time. For job monitors, include keywords, excluded_keywords, locations, min_score, notification_mode, and sources in payload. Keep names short and operational.",
+				Content: "Convert the user's request into one recurring orchestrator workflow. Use only these job types: jobs.monitor.new_grad, report.email, video.transcode, scrape.url, data.pipeline. Prefer jobs.monitor.new_grad for requests about monitoring new-grad software engineering roles. For Greenhouse sources, use objects with type greenhouse, company, and board_token. For Lever sources, use objects with type lever, company, and account_name. For Ashby sources, use objects with type ashby, company, and job_board_name. Known public ATS mappings: OpenAI=ashby/openai, Anduril=greenhouse/andurilindustries, Palantir=lever/palantir, SpaceX or Starlink=greenhouse/spacex, Notion=ashby/notion, Robinhood=greenhouse/robinhood. For SpaceX or Starlink, label the company SpaceX / Starlink so both brands are discoverable. Use lowercase board identifiers inferred from company names only when no known mapping is provided. Defaults: enabled true, max_attempts 2, interval_seconds 86400 for daily, 3600 for hourly, 900 for frequent/near real-time. For job monitors, always include sources, keywords for new graduate/early career and software engineering concepts, excluded_keywords for senior leadership, locations, min_score, and notifications with mode. Keep names short and operational.",
 			},
 			{
 				Role:    "user",
@@ -195,9 +195,11 @@ func (p *OpenAIPlanner) PlanWorkflow(ctx context.Context, prompt string) (*Workf
 		},
 		Text: responseText{
 			Format: responseFormat{
-				Type:   "json_schema",
-				Name:   "workflow_plan",
-				Strict: true,
+				Type: "json_schema",
+				Name: "workflow_plan",
+				// Workflow payloads intentionally vary by job type, so the schema
+				// cannot use strict structured outputs without rejecting valid keys.
+				Strict: false,
 				Schema: map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,
@@ -266,7 +268,7 @@ func (p *OpenAIPlanner) PlanCommand(ctx context.Context, prompt string) (*Comman
 		Input: []responseInput{
 			{
 				Role:    "system",
-				Content: "Convert the user's request into either one immediate orchestrator job or one recurring workflow. Choose action=workflow when the user asks for recurring work, monitoring, schedules, daily/hourly/weekly tasks, or ongoing alerts. Choose action=job for one-off work that should run now. Use only job types: jobs.monitor.new_grad, report.email, video.transcode, scrape.url, python.script, ai.inference, data.pipeline. Prefer jobs.monitor.new_grad for monitoring new-grad software engineering roles. For Greenhouse sources, use type greenhouse with company and board_token. For Lever, use type lever with company and account_name. For Ashby, use type ashby with company and job_board_name. For workflow intervals use 86400 for daily, 3600 for hourly, 900 for near-real-time. Fill both job and workflow objects, but only the object matching action will be executed.",
+				Content: "Convert the user's request into either one immediate orchestrator job or one recurring workflow. Choose action=workflow when the user asks for recurring work, monitoring, schedules, daily/hourly/weekly tasks, or ongoing alerts. Choose action=job for one-off work that should run now. Use only job types: jobs.monitor.new_grad, report.email, video.transcode, scrape.url, python.script, ai.inference, data.pipeline. Prefer jobs.monitor.new_grad for monitoring new-grad software engineering roles. For Greenhouse sources, use type greenhouse with company and board_token. For Lever, use type lever with company and account_name. For Ashby, use type ashby with company and job_board_name. Known public ATS mappings: OpenAI=ashby/openai, Anduril=greenhouse/andurilindustries, Palantir=lever/palantir, SpaceX or Starlink=greenhouse/spacex, Notion=ashby/notion, Robinhood=greenhouse/robinhood. For SpaceX or Starlink, label the company SpaceX / Starlink. Monitor payloads must include sources, new-graduate and software-engineering keywords, senior-level exclusions, requested locations, min_score, and notifications with mode. For workflow intervals use 86400 for daily, 3600 for hourly, 900 for near-real-time. Fill both job and workflow objects, but only the object matching action will be executed.",
 			},
 			{
 				Role:    "user",
@@ -277,7 +279,7 @@ func (p *OpenAIPlanner) PlanCommand(ctx context.Context, prompt string) (*Comman
 			Format: responseFormat{
 				Type:   "json_schema",
 				Name:   "command_plan",
-				Strict: true,
+				Strict: false,
 				Schema: commandPlanSchema(),
 			},
 		},
