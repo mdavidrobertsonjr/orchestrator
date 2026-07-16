@@ -173,7 +173,7 @@ const companyGroups = [
   {
     label: "Startups",
     value:
-      "Cursor, Perplexity, Modal, Baseten, Confido, Zettabyte, Cockroach Labs, Astranis, Relativity Space, Kernel, Foxglove, Hipp Health, HIFI, Mirage, Meshy"
+      "Cursor, Perplexity, Modal, Baseten, Confido, Zettabyte, Cockroach Labs, Astranis, Relativity Space, Kernel, Foxglove, Hipp Health, HIFI, Mirage, Meshy, Eventual"
   },
   {
     label: "Larger companies",
@@ -182,7 +182,7 @@ const companyGroups = [
   {
     label: "AI & infrastructure",
     value:
-      "OpenAI, Anthropic, xAI, Databricks, Scale AI, Cursor, Perplexity, Modal, Baseten, Zettabyte, Cloudflare, MongoDB, Cockroach Labs, Kernel, Foxglove, Benchling, Hipp Health, Mirage, Meshy"
+      "OpenAI, Anthropic, xAI, Databricks, Scale AI, Cursor, Perplexity, Modal, Baseten, Zettabyte, Cloudflare, MongoDB, Cockroach Labs, Kernel, Foxglove, Benchling, Hipp Health, Mirage, Meshy, Eventual, Cerebras"
   },
   {
     label: "Defense & space",
@@ -195,7 +195,7 @@ const companyGroups = [
   { label: "Fintech", value: "Stripe, Ramp, Plaid, Robinhood" }
 ];
 
-const earlyStageCompanies = new Set(["Confido", "Hipp Health", "Kernel", "Mirage", "Zettabyte"]);
+const earlyStageCompanies = new Set(["Confido", "Eventual", "Hipp Health", "Kernel", "Mirage", "Zettabyte"]);
 
 const initialWorkflowForm: WorkflowFormState = {
   name: "datadog-new-grad-monitor",

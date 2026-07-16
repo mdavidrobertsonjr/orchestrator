@@ -125,6 +125,10 @@ create_monitor "mirage" "Mirage" "ashby" "job_board_name" "mirage" \
   '["new york", "nyc"]'
 create_monitor "meshy" "Meshy" "ashby" "job_board_name" "meshy" \
   '["san francisco", "seattle", "new york", "vancouver", "toronto", "remote"]'
+create_monitor "eventual" "Eventual" "ashby" "job_board_name" "eventualcomputing" \
+  '["san francisco", "remote"]'
+create_monitor "cerebras" "Cerebras" "ashby" "job_board_name" "cerebras" \
+  '["sunnyvale", "san francisco", "remote"]'
 
 echo "Seeded job monitors."
 echo "Use the Workflows dashboard or POST /v1/workflows/<id>/run to run one immediately."
