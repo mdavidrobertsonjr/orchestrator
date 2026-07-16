@@ -363,27 +363,37 @@ RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, me
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var out []*Job
 	for rows.Next() {
 		job, err := scanJob(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
+		out = append(out, cloneJob(job))
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	// pgx cannot execute another statement on a transaction while the
+	// UPDATE ... RETURNING result set is still open. Collect and close the
+	// rows first, then append the transition logs.
+	for _, job := range out {
 		message := "worker lease expired; job requeued"
 		if job.Status == StatusDeadLetter {
 			message = "job moved to dead letter: worker lease expired"
 		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO job_logs (job_id, time, message) VALUES ($1, $2, $3)
-`, job.ID, now, message); err != nil {
+		`, job.ID, now, message); err != nil {
 			return nil, err
 		}
-		out = append(out, cloneJob(job))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
