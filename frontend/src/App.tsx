@@ -172,7 +172,8 @@ const priorityCompanies = [
 const companyGroups = [
   {
     label: "Startups",
-    value: "Cursor, Perplexity, Modal, Baseten, Confido, Zettabyte, Cockroach Labs, Astranis, Relativity Space"
+    value:
+      "Cursor, Perplexity, Modal, Baseten, Confido, Zettabyte, Cockroach Labs, Astranis, Relativity Space, Kernel, Foxglove, Hipp Health, HIFI, Mirage, Meshy"
   },
   {
     label: "Larger companies",
@@ -180,11 +181,12 @@ const companyGroups = [
   },
   {
     label: "AI & infrastructure",
-    value: "OpenAI, Anthropic, xAI, Databricks, Scale AI, Cursor, Perplexity, Modal, Baseten, Zettabyte, Cloudflare, MongoDB, Cockroach Labs"
+    value:
+      "OpenAI, Anthropic, xAI, Databricks, Scale AI, Cursor, Perplexity, Modal, Baseten, Zettabyte, Cloudflare, MongoDB, Cockroach Labs, Kernel, Foxglove, Benchling, Hipp Health, Mirage, Meshy"
   },
   {
     label: "Defense & space",
-    value: "Anduril, SpaceX, Starlink, Astranis, Zipline, Relativity Space"
+    value: "Anduril, SpaceX, Starlink, Astranis, Zipline, Relativity Space, Foxglove"
   },
   {
     label: "Developer tools",
