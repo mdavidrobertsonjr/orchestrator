@@ -20,6 +20,8 @@ This repository is intended as a public engineering showcase and a locally runna
 
 [Watch the 64-second product demo](docs/demo/orchestrator-demo.mp4) to see live filtering, natural-language workflow creation, and workflow lifecycle controls.
 
+Try commands such as `Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour.` Equivalent requests reuse the existing workflow instead of creating duplicates.
+
 | Runtime overview | Matched job postings |
 | --- | --- |
 | ![Orchestrator dashboard showing healthy runtime metrics, alerts, source health, and recent jobs](docs/screenshots/dashboard-overview.png) | ![Job postings dashboard with company, metro-area, source, and score filters](docs/screenshots/job-postings.png) |
@@ -139,28 +141,6 @@ make website
 ```
 
 If `ORCH_SMTP_HOST` is not set, email delivery is simulated for local development.
-
-## Project Demo
-
-The shortest end-to-end demonstration starts on the healthy Overview page, shows live Postings, and then creates a recurring monitor from the Commands page with:
-
-```text
-Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour
-```
-
-The command is converted into a typed `jobs.monitor.new_grad` workflow with canonical ATS sources, scoring rules, senior-level exclusions, and an hourly schedule. Repeating the same request returns the existing workflow rather than adding a duplicate.
-
-For a deterministic email demonstration, submit a one-off `report.email` job. Recurring monitors send immediate alerts only for newly discovered matches; rescanning an existing posting updates its state without sending duplicate email.
-
-Recommended portfolio captures:
-
-1. Overview with healthy workers and no active operational alerts.
-2. Postings with recognizable companies, match scores, locations, and match reasons.
-3. The natural-language command result.
-4. The single enabled combined workflow.
-5. A successful job detail with structured results and execution logs.
-
-Do not include `.env`, API keys, access tokens, SMTP credentials, or personal inbox content in screenshots or recordings.
 
 ## Job Monitoring
 
