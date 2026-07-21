@@ -187,7 +187,7 @@ Workers claim jobs with leases
 Typed executors store results and send notifications
 ```
 
-For interview prep and deeper architecture notes, see [System Design](docs/system-design.md). For project positioning and future direction, see [Project Framing](docs/project-framing.md).
+For deeper architecture notes, see [System Design](docs/system-design.md). For project positioning and future direction, see [Project Framing](docs/project-framing.md).
 
 ## API And Dashboard
 
