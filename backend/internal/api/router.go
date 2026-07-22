@@ -101,6 +101,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/workers", server.handleListWorkers)
 	mux.HandleFunc("GET /v1/postings", server.handleListPostings)
 	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
+	mux.HandleFunc("PATCH /v1/postings/{id}", server.handleUpdatePosting)
 	mux.HandleFunc("GET /v1/workflows", server.handleListWorkflows)
 	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
 	mux.HandleFunc("POST /v1/workflows/natural", server.handleCreateNaturalWorkflow)
@@ -993,6 +994,35 @@ func (s *Server) handleGetPosting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, posting)
 }
 
+func (s *Server) handleUpdatePosting(w http.ResponseWriter, r *http.Request) {
+	if s.postings == nil {
+		writeError(w, http.StatusNotFound, "posting not found")
+		return
+	}
+	var request struct {
+		Applied *bool `json:"applied"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if request.Applied == nil {
+		writeError(w, http.StatusBadRequest, "applied is required")
+		return
+	}
+	posting, err := s.postings.SetApplied(r.PathValue("id"), *request.Applied)
+	if err != nil {
+		if errors.Is(err, postings.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "posting not found")
+			return
+		}
+		s.logger.Error("failed to update posting", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update posting")
+		return
+	}
+	writeJSON(w, http.StatusOK, posting)
+}
+
 func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if s.workflows == nil {
 		writeError(w, http.StatusServiceUnavailable, "workflow store is not configured")
@@ -1601,6 +1631,9 @@ func filterPostings(items []*postings.Posting, r *http.Request) []*postings.Post
 	locations := postings.FilterTerms(r.URL.Query().Get("location"))
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	minScore := queryInt(r, "min_score")
+	applied := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("applied")))
+	freshness := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("freshness")))
+	freshAfter := time.Now().UTC().Add(-48 * time.Hour)
 
 	out := items[:0]
 	for _, posting := range items {
@@ -1614,6 +1647,18 @@ func filterPostings(items []*postings.Posting, r *http.Request) []*postings.Post
 			continue
 		}
 		if minScore > 0 && posting.MatchScore < minScore {
+			continue
+		}
+		if applied == "applied" && posting.AppliedAt == nil {
+			continue
+		}
+		if applied == "not_applied" && posting.AppliedAt != nil {
+			continue
+		}
+		if freshness == "current" && posting.LastSeenAt.Before(freshAfter) && posting.AppliedAt == nil {
+			continue
+		}
+		if freshness == "stale" && (!posting.LastSeenAt.Before(freshAfter) || posting.AppliedAt != nil) {
 			continue
 		}
 		if query != "" && !postings.MatchesQuery(query, posting.Company, posting.Title, posting.Location, posting.URL) {
@@ -1726,15 +1771,29 @@ func postingsListParams(r *http.Request) (postings.ListParams, error) {
 	if err != nil {
 		return postings.ListParams{}, err
 	}
-	return postings.ListParams{
-		Company:  strings.TrimSpace(r.URL.Query().Get("company")),
-		Source:   strings.TrimSpace(r.URL.Query().Get("source")),
-		Location: strings.TrimSpace(r.URL.Query().Get("location")),
-		Query:    strings.TrimSpace(r.URL.Query().Get("q")),
-		MinScore: queryInt(r, "min_score"),
-		Limit:    limit,
-		Offset:   offset,
-	}, nil
+	applied := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("applied")))
+	if applied != "" && applied != "applied" && applied != "not_applied" {
+		return postings.ListParams{}, errors.New("applied must be applied or not_applied")
+	}
+	freshness := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("freshness")))
+	if freshness != "" && freshness != "current" && freshness != "stale" {
+		return postings.ListParams{}, errors.New("freshness must be current or stale")
+	}
+	params := postings.ListParams{
+		Company:   strings.TrimSpace(r.URL.Query().Get("company")),
+		Source:    strings.TrimSpace(r.URL.Query().Get("source")),
+		Location:  strings.TrimSpace(r.URL.Query().Get("location")),
+		Query:     strings.TrimSpace(r.URL.Query().Get("q")),
+		MinScore:  queryInt(r, "min_score"),
+		Applied:   applied,
+		Freshness: freshness,
+		Limit:     limit,
+		Offset:    offset,
+	}
+	if freshness != "" {
+		params.FreshAfter = time.Now().UTC().Add(-48 * time.Hour)
+	}
+	return params, nil
 }
 
 func workflowRunsListParams(r *http.Request) (workflowruns.ListParams, error) {

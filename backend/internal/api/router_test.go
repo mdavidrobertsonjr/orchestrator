@@ -1005,6 +1005,34 @@ func TestGetAndListPostings(t *testing.T) {
 	if len(list.Postings) != 1 || list.Postings[0].ID != posting.ID {
 		t.Fatalf("expected list with posting %q, got %#v", posting.ID, list.Postings)
 	}
+
+	patchReq := httptest.NewRequest(http.MethodPatch, "/v1/postings/"+posting.ID, bytes.NewBufferString(`{"applied":true}`))
+	patchRec := httptest.NewRecorder()
+	router.ServeHTTP(patchRec, patchReq)
+	if patchRec.Code != http.StatusOK {
+		t.Fatalf("expected patch status %d, got %d with body %s", http.StatusOK, patchRec.Code, patchRec.Body.String())
+	}
+	var updated postings.Posting
+	if err := json.NewDecoder(patchRec.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if updated.AppliedAt == nil {
+		t.Fatal("expected applied timestamp")
+	}
+
+	appliedReq := httptest.NewRequest(http.MethodGet, "/v1/postings?applied=applied", nil)
+	appliedRec := httptest.NewRecorder()
+	router.ServeHTTP(appliedRec, appliedReq)
+	if appliedRec.Code != http.StatusOK {
+		t.Fatalf("expected applied filter status %d, got %d", http.StatusOK, appliedRec.Code)
+	}
+	list.Postings = nil
+	if err := json.NewDecoder(appliedRec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode applied list: %v", err)
+	}
+	if len(list.Postings) != 1 || list.Postings[0].AppliedAt == nil {
+		t.Fatalf("expected applied posting, got %#v", list.Postings)
+	}
 }
 
 func TestCreateWorkflow(t *testing.T) {

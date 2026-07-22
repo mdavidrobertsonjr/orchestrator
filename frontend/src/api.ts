@@ -132,6 +132,7 @@ export type Posting = {
   first_seen_at: string;
   last_seen_at: string;
   matched_at?: string;
+  applied_at?: string;
   match_score?: number;
   match_reasons?: string[];
   metadata?: Record<string, string>;
@@ -143,6 +144,8 @@ export type PostingFilters = {
   source?: string;
   location?: string;
   minScore?: number;
+  applied?: "applied" | "not_applied";
+  freshness?: "current" | "stale";
   pageSize?: number;
 };
 
@@ -239,6 +242,8 @@ export async function fetchPostings(filters: PostingFilters = {}): Promise<Posti
   appendQuery(params, "company", filters.company);
   appendQuery(params, "source", filters.source);
   appendQuery(params, "location", filters.location);
+  appendQuery(params, "applied", filters.applied);
+  appendQuery(params, "freshness", filters.freshness);
   if (filters.minScore && filters.minScore > 0) {
     params.set("min_score", String(filters.minScore));
   }
@@ -248,6 +253,16 @@ export async function fetchPostings(filters: PostingFilters = {}): Promise<Posti
   const query = params.toString();
   const response = await request<{ postings: Posting[] }>(`/v1/postings${query ? `?${query}` : ""}`);
   return response.postings;
+}
+
+export function updatePostingApplied(id: string, applied: boolean): Promise<Posting> {
+  return request<Posting>(`/v1/postings/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ applied })
+  });
 }
 
 function appendQuery(params: URLSearchParams, key: string, value?: string): void {

@@ -474,6 +474,7 @@ td span {
 }
 
 .postings-table {
+  min-width: 1120px;
   table-layout: fixed;
 }
 
@@ -484,17 +485,17 @@ td span {
 .postings-table th:first-child,
 .postings-table td:first-child {
   white-space: normal;
-  width: 29%;
+  width: 24%;
 }
 
 .postings-table th:nth-child(2),
 .postings-table td:nth-child(2) {
-  width: 15%;
+  width: 13%;
 }
 
 .postings-table th:nth-child(3),
 .postings-table td:nth-child(3) {
-  width: 19%;
+  width: 16%;
 }
 
 .postings-table th:nth-child(4),
@@ -506,7 +507,7 @@ td span {
 
 .postings-table th:nth-child(5),
 .postings-table td:nth-child(5) {
-  width: 22%;
+  width: 19%;
 }
 
 .postings-table th:nth-child(6),
@@ -514,6 +515,48 @@ td span {
   padding-left: 10px;
   padding-right: 10px;
   width: 110px;
+}
+
+.postings-table th:nth-child(7),
+.postings-table td:nth-child(7) {
+  padding-left: 10px;
+  padding-right: 10px;
+  width: 120px;
+}
+
+.posting-application small {
+  color: #7a8998;
+  display: block;
+  font-size: 11px;
+  margin-top: 5px;
+}
+
+.application-button {
+  background: #fff;
+  border: 1px solid #cbd5df;
+  border-radius: 7px;
+  color: #526170;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
+.application-button:hover:not(:disabled) {
+  border-color: #1769aa;
+  color: #1769aa;
+}
+
+.application-button.applied {
+  background: #e9f7f1;
+  border-color: #b9e4d2;
+  color: #087451;
+}
+
+.application-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .postings-table td:first-child strong {
@@ -601,7 +644,7 @@ td span {
   border-bottom: 1px solid #edf1f5;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(220px, 1.2fr) repeat(5, minmax(120px, 1fr)) auto;
+  grid-template-columns: minmax(220px, 1.2fr) repeat(7, minmax(120px, 1fr)) auto;
   padding: 14px 18px;
 }
 

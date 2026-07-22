@@ -16,17 +16,21 @@ var ErrNotFound = errors.New("posting not found")
 type Store interface {
 	Upsert(params UpsertPostingParams) (*Posting, bool, error)
 	Get(id string) (*Posting, error)
+	SetApplied(id string, applied bool) (*Posting, error)
 	List() ([]*Posting, error)
 }
 
 type ListParams struct {
-	Company  string
-	Source   string
-	Location string
-	Query    string
-	MinScore int
-	Limit    int
-	Offset   int
+	Company    string
+	Source     string
+	Location   string
+	Query      string
+	MinScore   int
+	Applied    string
+	Freshness  string
+	FreshAfter time.Time
+	Limit      int
+	Offset     int
 }
 
 type MemoryStore struct {
@@ -96,6 +100,23 @@ func (s *MemoryStore) Get(id string) (*Posting, error) {
 	posting, ok := s.postings[id]
 	if !ok {
 		return nil, ErrNotFound
+	}
+	return clonePosting(posting), nil
+}
+
+func (s *MemoryStore) SetApplied(id string, applied bool) (*Posting, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	posting, ok := s.postings[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if applied {
+		now := time.Now().UTC()
+		posting.AppliedAt = &now
+	} else {
+		posting.AppliedAt = nil
 	}
 	return clonePosting(posting), nil
 }
@@ -172,6 +193,7 @@ func clonePosting(posting *Posting) *Posting {
 	clone := *posting
 	clone.PostedAt = cloneTime(posting.PostedAt)
 	clone.MatchedAt = cloneTime(posting.MatchedAt)
+	clone.AppliedAt = cloneTime(posting.AppliedAt)
 	clone.MatchReasons = append([]string(nil), posting.MatchReasons...)
 	clone.Metadata = cloneMapString(posting.Metadata)
 	return &clone

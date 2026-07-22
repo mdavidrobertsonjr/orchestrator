@@ -15,6 +15,7 @@ type Posting struct {
 	FirstSeenAt  time.Time         `json:"first_seen_at"`
 	LastSeenAt   time.Time         `json:"last_seen_at"`
 	MatchedAt    *time.Time        `json:"matched_at,omitempty"`
+	AppliedAt    *time.Time        `json:"applied_at,omitempty"`
 	MatchScore   int               `json:"match_score,omitempty"`
 	MatchReasons []string          `json:"match_reasons,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
@@ -33,4 +34,3 @@ type UpsertPostingParams struct {
 	MatchReasons []string          `json:"match_reasons"`
 	Metadata     map[string]string `json:"metadata"`
 }
-

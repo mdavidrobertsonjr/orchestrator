@@ -56,6 +56,33 @@ func TestMemoryStoreUpsertCreatesPostingCopies(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreSetAppliedPersistsAndClearsTimestamp(t *testing.T) {
+	store := NewMemoryStore()
+	posting, _, err := store.Upsert(UpsertPostingParams{Company: "Palantir", Title: "Software Engineer, New Grad", URL: "https://example.com/palantir", Source: "lever"})
+	if err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
+
+	applied, err := store.SetApplied(posting.ID, true)
+	if err != nil {
+		t.Fatalf("set applied: %v", err)
+	}
+	if applied.AppliedAt == nil {
+		t.Fatal("expected applied timestamp")
+	}
+	stored, err := store.Get(posting.ID)
+	if err != nil || stored.AppliedAt == nil {
+		t.Fatalf("expected persisted applied timestamp, posting=%#v err=%v", stored, err)
+	}
+	if _, err := store.SetApplied(posting.ID, false); err != nil {
+		t.Fatalf("clear applied: %v", err)
+	}
+	stored, err = store.Get(posting.ID)
+	if err != nil || stored.AppliedAt != nil {
+		t.Fatalf("expected cleared applied timestamp, posting=%#v err=%v", stored, err)
+	}
+}
+
 func TestMemoryStoreUpsertDedupesExistingPosting(t *testing.T) {
 	store := NewMemoryStore()
 

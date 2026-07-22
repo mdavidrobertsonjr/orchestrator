@@ -10,7 +10,7 @@ This repository is intended as a public engineering showcase and a locally runna
 - Recurring workflow scheduler with idempotent dispatch records and manual run support.
 - Real product workflow for monitoring Greenhouse, Lever, Ashby, Workday, and custom job feeds.
 - Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
-- React operations dashboard for queue health, jobs, workflow runs, workers, postings, results, logs, metrics, and alerts.
+- React operations dashboard for queue health, jobs, workflow runs, workers, postings, application tracking, results, logs, metrics, and alerts.
 - Natural-language job/workflow planning when an operator supplies their own `OPENAI_API_KEY`.
 - Idempotent natural-language scheduling that reuses an equivalent workflow instead of creating duplicates.
 - Tracked SMTP delivery with configurable recipients and persisted success/failure state.
@@ -199,10 +199,11 @@ Representative endpoints:
 - `PATCH /v1/workflows/{id}`: enable or pause a workflow.
 - `DELETE /v1/workflows/{id}`: safely delete a paused workflow.
 - `POST /v1/workflows/{id}/run`: manually trigger a workflow.
+- `PATCH /v1/postings/{id}`: mark or unmark a posting as applied.
 - `GET /v1/jobs`, `GET /v1/workflow-runs`, `GET /v1/postings`, `GET /v1/results`: inspect state.
 - `GET /v1/workers`, `GET /v1/metrics`, `GET /metrics`: inspect runtime and Prometheus metrics.
 - `GET /healthz`, `GET /readyz`: process and dependency health checks.
 
-Collection endpoints support pagination with `limit` and `offset`, or `page_size` and `page`. In Postgres mode, filters and pagination are pushed into SQL for jobs, postings, workflow runs, and results.
+Collection endpoints support pagination with `limit` and `offset`, or `page_size` and `page`. Posting filters include application status and freshness; current results hide un-applied postings not seen by a monitor for 48 hours without deleting their history. In Postgres mode, filters and pagination are pushed into SQL for jobs, postings, workflow runs, and results.
 
 Backend-specific API notes are in [backend/README.md](backend/README.md). Frontend-specific notes are in [frontend/README.md](frontend/README.md).

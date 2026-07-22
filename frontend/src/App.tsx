@@ -48,6 +48,7 @@ import {
   RuntimeMetrics,
   runWorkflow,
   setAuthToken,
+  updatePostingApplied,
   updateWorkflow,
   Worker,
   WorkerStatus,
@@ -131,6 +132,8 @@ type PostingFilterState = {
   source: string;
   location: string;
   minScore: number;
+  applied: "" | "applied" | "not_applied";
+  freshness: "" | "current" | "stale";
   pageSize: number;
 };
 
@@ -140,6 +143,8 @@ const defaultPostingFilters: PostingFilterState = {
   source: "",
   location: "",
   minScore: 40,
+  applied: "",
+  freshness: "current",
   pageSize: 200
 };
 
@@ -240,6 +245,7 @@ export function App() {
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
   const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
   const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
+  const [updatingPostingID, setUpdatingPostingID] = useState<string | null>(null);
   const [commandPrompt, setCommandPrompt] = useState(
     "Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour"
   );
@@ -293,6 +299,8 @@ export function App() {
       source: postingFilters.source,
       location: postingFilters.location,
       minScore: postingFilters.minScore,
+      applied: postingFilters.applied || undefined,
+      freshness: postingFilters.freshness || undefined,
       pageSize: postingFilters.pageSize
     }),
     [postingFilters]
@@ -367,6 +375,20 @@ export function App() {
   function handlePostingFiltersReset() {
     setPostingFilterForm(defaultPostingFilters);
     setPostingFilters(defaultPostingFilters);
+  }
+
+  async function handlePostingApplied(posting: Posting, applied: boolean) {
+    setUpdatingPostingID(posting.id);
+    try {
+      const updated = await updatePostingApplied(posting.id, applied);
+      setPostings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setError(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to update application status");
+    } finally {
+      setUpdatingPostingID(null);
+    }
   }
 
   function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
@@ -576,7 +598,12 @@ export function App() {
           onReset={handlePostingFiltersReset}
           onSubmit={handlePostingFiltersSubmit}
         />
-        <PostingsTable postings={postings} loading={loading} />
+        <PostingsTable
+          postings={postings}
+          loading={loading}
+          updatingID={updatingPostingID}
+          onAppliedChange={(posting, applied) => void handlePostingApplied(posting, applied)}
+        />
       </Panel>
     ),
     workflows: (
@@ -1362,6 +1389,22 @@ function PostingFilterBar({
         </select>
       </label>
       <label>
+        <span>Applications</span>
+        <select value={filters.applied} onChange={(event) => onChange({ ...filters, applied: event.target.value as PostingFilterState["applied"] })}>
+          <option value="">All</option>
+          <option value="not_applied">Not applied</option>
+          <option value="applied">Applied</option>
+        </select>
+      </label>
+      <label>
+        <span>Availability</span>
+        <select value={filters.freshness} onChange={(event) => onChange({ ...filters, freshness: event.target.value as PostingFilterState["freshness"] })}>
+          <option value="current">Current</option>
+          <option value="stale">Stale</option>
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>
         <span>Limit</span>
         <select
           value={filters.pageSize}
@@ -1377,7 +1420,7 @@ function PostingFilterBar({
           Reset
         </button>
         <button className="primary-button" type="submit">
-          Apply
+          Search
         </button>
       </div>
       <div className="priority-company-filter" aria-label="Priority company filters">
@@ -1469,7 +1512,17 @@ function toggleFilter(value: string, toggledValue: string) {
   return values.join(", ");
 }
 
-function PostingsTable({ postings, loading }: { postings: Posting[]; loading: boolean }) {
+function PostingsTable({
+  postings,
+  loading,
+  updatingID,
+  onAppliedChange
+}: {
+  postings: Posting[];
+  loading: boolean;
+  updatingID: string | null;
+  onAppliedChange: (posting: Posting, applied: boolean) => void;
+}) {
   if (loading) {
     return <EmptyState label="Loading postings" />;
   }
@@ -1488,6 +1541,7 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
             <th>Score</th>
             <th>Reasons</th>
             <th>Matched</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -1538,6 +1592,18 @@ function PostingsTable({ postings, loading }: { postings: Posting[]; loading: bo
                 <td className="posting-matched">
                   {relativeTime(posting.matched_at ?? posting.first_seen_at)}
                   <span title={posting.source_id || posting.id}>{formatPostingSource(posting.source)}</span>
+                </td>
+                <td className="posting-application">
+                  <button
+                    className={posting.applied_at ? "application-button applied" : "application-button"}
+                    type="button"
+                    disabled={updatingID === posting.id}
+                    aria-pressed={Boolean(posting.applied_at)}
+                    onClick={() => onAppliedChange(posting, !posting.applied_at)}
+                  >
+                    {posting.applied_at ? "Applied" : "Mark applied"}
+                  </button>
+                  {posting.applied_at && <small>{relativeTime(posting.applied_at)}</small>}
                 </td>
               </tr>
             );
