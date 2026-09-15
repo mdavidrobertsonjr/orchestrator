@@ -1,5 +1,12 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+let API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const AUTH_STORAGE_KEY = "orchestrator.authToken";
+let hostedMode = false;
+
+export function useHostedAccounts(): void {
+  hostedMode = true;
+  API_BASE_URL = "";
+  clearAuthToken();
+}
 
 export function eventStreamURL(): string {
   const token = getAuthToken();
@@ -393,6 +400,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers
   });
   if (!response.ok) {
+    if (hostedMode && response.status === 401) {
+      window.dispatchEvent(new Event("orchestrator:session-expired"));
+    }
     const body = await response.json().catch(() => null);
     const message = body?.error ?? `request failed with ${response.status}`;
     throw new Error(message);
