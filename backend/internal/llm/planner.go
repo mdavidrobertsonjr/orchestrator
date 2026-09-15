@@ -111,6 +111,7 @@ type OpenAIPlanner struct {
 	model      string
 	baseURL    string
 	httpClient *http.Client
+	generate   func(context.Context, string, string, map[string]any) (string, error)
 }
 
 func NewOpenAIPlanner(apiKey string, model string) *OpenAIPlanner {
@@ -133,7 +134,7 @@ func (p *OpenAIPlanner) Plan(ctx context.Context, prompt string) (*JobPlan, erro
 	if prompt == "" {
 		return nil, errors.New("prompt is required")
 	}
-	if p.apiKey == "" {
+	if p.apiKey == "" && p.generate == nil {
 		return nil, errors.New("OPENAI_API_KEY is not configured")
 	}
 
@@ -230,7 +231,7 @@ func (p *OpenAIPlanner) PlanWorkflow(ctx context.Context, prompt string) (*Workf
 	if prompt == "" {
 		return nil, errors.New("prompt is required")
 	}
-	if p.apiKey == "" {
+	if p.apiKey == "" && p.generate == nil {
 		return nil, errors.New("OPENAI_API_KEY is not configured")
 	}
 
@@ -312,7 +313,7 @@ func (p *OpenAIPlanner) PlanCommand(ctx context.Context, prompt string) (*Comman
 	if prompt == "" {
 		return nil, errors.New("prompt is required")
 	}
-	if p.apiKey == "" {
+	if p.apiKey == "" && p.generate == nil {
 		return nil, errors.New("OPENAI_API_KEY is not configured")
 	}
 
@@ -403,7 +404,16 @@ func commandPlanSchema() map[string]any {
 	}
 }
 
+// NewConnectedPlanner reuses the same planning schemas and normalization with
+// an authenticated Codex runtime, without borrowing the host's API key.
+func NewConnectedPlanner(generate func(context.Context, string, string, map[string]any) (string, error)) *OpenAIPlanner {
+	return &OpenAIPlanner{generate: generate}
+}
+
 func (p *OpenAIPlanner) responsesOutput(ctx context.Context, body responseRequest) (string, error) {
+	if p.generate != nil {
+		return p.generate(ctx, body.Input[0].Content, body.Input[1].Content, body.Text.Format.Schema)
+	}
 	var encoded bytes.Buffer
 	if err := json.NewEncoder(&encoded).Encode(body); err != nil {
 		return "", err

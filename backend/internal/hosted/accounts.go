@@ -107,3 +107,24 @@ func (a *Accounts) Users(ctx context.Context) ([]User, error) {
 	}
 	return out, rows.Err()
 }
+
+// AcquireHost ensures this initial deployment runs one scheduler per workspace
+// and one writer for each user's persistent Codex credential directory.
+func (a *Accounts) AcquireHost(ctx context.Context) (func(), error) {
+	conn, err := a.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var acquired bool
+	if err = conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(739281642019)`).Scan(&acquired); err != nil || !acquired {
+		conn.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("another hosted instance already owns this database")
+	}
+	return func() {
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(739281642019)`)
+		_ = conn.Close()
+	}, nil
+}
