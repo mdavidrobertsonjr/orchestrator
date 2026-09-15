@@ -1,0 +1,4 @@
+{$ORCH_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy website:8080
+}

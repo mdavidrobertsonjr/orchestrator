@@ -207,3 +207,11 @@ Representative endpoints:
 Collection endpoints support pagination with `limit` and `offset`, or `page_size` and `page`. Posting filters include application status and freshness; current results hide un-applied postings not seen by a monitor for 48 hours without deleting their history. In Postgres mode, filters and pagination are pushed into SQL for jobs, postings, workflow runs, and results.
 
 Backend-specific API notes are in [backend/README.md](backend/README.md). Frontend-specific notes are in [frontend/README.md](frontend/README.md).
+
+## Public website accounts
+
+For a hosted website where visitors sign in with Google, connect their own
+ChatGPT account, and keep separate saved jobs, see
+[the hosted website guide](docs/hosted-website.md). Visitors only need a browser.
+This uses the separate `compose.hosted.yaml` deployment; the existing private
+API/dashboard commands remain available.

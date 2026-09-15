@@ -1,0 +1,70 @@
+# A separate project and database keep the existing private instance untouched.
+name: orchestrator-hosted
+services:
+  website:
+    build:
+      context: .
+      target: hosted
+    restart: unless-stopped
+    init: true
+    environment:
+      ORCH_ADDR: ":8080"
+      ORCH_PUBLIC_URL: "https://${ORCH_DOMAIN:?Set ORCH_DOMAIN}"
+      ORCH_GOOGLE_CLIENT_ID: "${ORCH_GOOGLE_CLIENT_ID:?Set Google web OAuth client ID}"
+      ORCH_GOOGLE_CLIENT_SECRET: "${ORCH_GOOGLE_CLIENT_SECRET:?Set Google web OAuth client secret}"
+      ORCH_DATABASE_URL: "postgres://orchestrator:${ORCH_HOSTED_DB_PASSWORD:?Set a URL-safe database password}@database:5432/orchestrator?sslmode=disable"
+      ORCH_USER_DATA_DIR: /var/lib/orchestrator/users
+      ORCH_MAX_USERS: "${ORCH_MAX_USERS:-5}"
+      ORCH_CODEX_MODEL: "${ORCH_CODEX_MODEL:-}"
+    volumes:
+      - user-data:/var/lib/orchestrator/users
+    depends_on:
+      database:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orchestrator
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: "${ORCH_HOSTED_DB_PASSWORD:?Set a URL-safe database password}"
+    volumes:
+      - hosted-database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator -d orchestrator"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      ORCH_DOMAIN: "${ORCH_DOMAIN:?Set ORCH_DOMAIN}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      website:
+        condition: service_healthy
+volumes:
+  hosted-database:
+  user-data:
+  caddy-data:
+  caddy-config:
