@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/hosted"
 )
 
@@ -41,8 +42,22 @@ func run() error {
 		return errors.New("ORCH_DATABASE_URL is required for durable hosted accounts")
 	}
 	id, secret := os.Getenv("ORCH_GOOGLE_CLIENT_ID"), os.Getenv("ORCH_GOOGLE_CLIENT_SECRET")
-	if id == "" || secret == "" {
-		return errors.New("Google web OAuth client ID and secret are required")
+	if (id == "") != (secret == "") {
+		return errors.New("set both Google web OAuth client ID and secret")
+	}
+	var mailer email.Sender
+	mail := hosted.AuthMail{Host: os.Getenv("ORCH_AUTH_SMTP_HOST"), Port: os.Getenv("ORCH_AUTH_SMTP_PORT"), Username: os.Getenv("ORCH_AUTH_SMTP_USERNAME"), Password: os.Getenv("ORCH_AUTH_SMTP_PASSWORD"), From: os.Getenv("ORCH_AUTH_SMTP_FROM")}
+	if mail.Host != "" {
+		if mail.Port == "" {
+			mail.Port = "587"
+		}
+		if mail.Username == "" || mail.Password == "" || mail.From == "" {
+			return errors.New("account email requires SMTP username, password, and from address")
+		}
+		mailer = mail
+	}
+	if id == "" && mailer == nil {
+		return errors.New("configure Google sign-in or account SMTP before starting hosted mode")
 	}
 	root := os.Getenv("ORCH_USER_DATA_DIR")
 	if !filepath.IsAbs(root) {
@@ -85,7 +100,7 @@ func run() error {
 	if static == "" {
 		static = "../frontend/dist"
 	}
-	handler := hosted.NewServer(a, runtimes, hosted.GoogleAuth{ClientID: id, ClientSecret: secret, Origin: origin}, static, logger)
+	handler := hosted.NewServer(a, runtimes, hosted.GoogleAuth{ClientID: id, ClientSecret: secret, Origin: origin}, static, logger, mailer)
 	addr := os.Getenv("ORCH_ADDR")
 	if addr == "" {
 		addr = ":8080"

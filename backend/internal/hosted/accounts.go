@@ -32,6 +32,11 @@ func NewAccounts(ctx context.Context, dsn string, maxUsers int) (*Accounts, erro
  CREATE TABLE IF NOT EXISTS hosted.users(id text PRIMARY KEY, subject text UNIQUE NOT NULL, email text NOT NULL, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
  CREATE TABLE IF NOT EXISTS hosted.sessions(token_hash text PRIMARY KEY, user_id text NOT NULL REFERENCES hosted.users(id), expires_at timestamptz NOT NULL);
  CREATE INDEX IF NOT EXISTS sessions_expiry ON hosted.sessions(expires_at);`)
+	if err == nil {
+		_, err = db.ExecContext(ctx, `ALTER TABLE hosted.users ADD COLUMN IF NOT EXISTS password_hash text;
+ CREATE TABLE IF NOT EXISTS hosted.email_tokens(token_hash text PRIMARY KEY, email text NOT NULL, purpose text NOT NULL, expires_at timestamptz NOT NULL);
+ CREATE INDEX IF NOT EXISTS email_tokens_expiry ON hosted.email_tokens(expires_at);`)
+	}
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -59,6 +64,11 @@ func (a *Accounts) Login(ctx context.Context, subject, email, name string) (User
 	}
 	var u User
 	err = tx.QueryRowContext(ctx, `SELECT id,email,name FROM hosted.users WHERE subject=$1`, subject).Scan(&u.ID, &u.Email, &u.Name)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Only link a verified Google identity to an email-verified password account.
+		// Never merge two Google subjects just because their emails match.
+		err = tx.QueryRowContext(ctx, `UPDATE hosted.users SET subject=$1 WHERE lower(email)=lower($2) AND subject LIKE 'email:%' RETURNING id,email,name`, subject, email).Scan(&u.ID, &u.Email, &u.Name)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		var n int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM hosted.users`).Scan(&n); err != nil {

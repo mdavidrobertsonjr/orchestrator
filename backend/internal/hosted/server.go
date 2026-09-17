@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"orchestrator/backend/internal/email"
 )
 
 type accountStore interface {
@@ -26,10 +28,15 @@ type Server struct {
 	static   string
 	logger   *slog.Logger
 	limits   limiter
+	mailer   email.Sender
 }
 
-func NewServer(a *Accounts, r *Runtimes, g GoogleAuth, static string, logger *slog.Logger) http.Handler {
-	return &Server{accounts: a, runtimes: r, google: g, static: static, logger: logger}
+func NewServer(a *Accounts, r *Runtimes, g GoogleAuth, static string, logger *slog.Logger, mailer ...email.Sender) http.Handler {
+	s := &Server{accounts: a, runtimes: r, google: g, static: static, logger: logger}
+	if len(mailer) > 0 {
+		s.mailer = mailer[0]
+	}
+	return s
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -54,10 +61,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/auth/config" {
-		jsonResponse(w, 200, map[string]any{"hosted": true, "provider": "google"})
+		jsonResponse(w, 200, map[string]any{"hosted": true, "provider": "google", "google": s.google.ClientID != "", "email_signup": s.mailer != nil})
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/auth/email/") {
+		s.emailAuth(w, r)
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/auth/google" {
+		if s.google.ClientID == "" {
+			fail(w, 503, "Google sign-in is not configured")
+			return
+		}
 		if !s.limits.allow("login", 120) {
 			fail(w, 429, "too many sign-in attempts; try again shortly")
 			return
@@ -200,6 +215,12 @@ func (l *limiter) allow(key string, max int) bool {
 		l.items = map[string]bucket{}
 	}
 	now := time.Now()
+	// Expire old email buckets so unauthenticated input cannot grow this map forever.
+	for k, item := range l.items {
+		if now.Sub(item.start) >= time.Minute {
+			delete(l.items, k)
+		}
+	}
 	b := l.items[key]
 	if now.Sub(b.start) >= time.Minute {
 		b = bucket{start: now}
