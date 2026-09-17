@@ -234,13 +234,13 @@ export type NaturalCommandResponse = {
 };
 
 export async function fetchJobs(): Promise<Job[]> {
-  const response = await request<{ jobs: Job[] }>("/v1/jobs");
-  return response.jobs;
+  const response = await request<{ jobs: Job[] | null }>("/v1/jobs");
+  return response.jobs ?? [];
 }
 
 export async function fetchWorkers(): Promise<Worker[]> {
-  const response = await request<{ workers: Worker[] }>("/v1/workers");
-  return response.workers;
+  const response = await request<{ workers: Worker[] | null }>("/v1/workers");
+  return response.workers ?? [];
 }
 
 export async function fetchPostings(filters: PostingFilters = {}): Promise<Posting[]> {
@@ -258,8 +258,8 @@ export async function fetchPostings(filters: PostingFilters = {}): Promise<Posti
     params.set("page_size", String(filters.pageSize));
   }
   const query = params.toString();
-  const response = await request<{ postings: Posting[] }>(`/v1/postings${query ? `?${query}` : ""}`);
-  return response.postings;
+  const response = await request<{ postings: Posting[] | null }>(`/v1/postings${query ? `?${query}` : ""}`);
+  return response.postings ?? [];
 }
 
 export function updatePostingApplied(id: string, applied: boolean): Promise<Posting> {
@@ -280,18 +280,18 @@ function appendQuery(params: URLSearchParams, key: string, value?: string): void
 }
 
 export async function fetchWorkflows(): Promise<Workflow[]> {
-  const response = await request<{ workflows: Workflow[] }>("/v1/workflows");
-  return response.workflows;
+  const response = await request<{ workflows: Workflow[] | null }>("/v1/workflows");
+  return response.workflows ?? [];
 }
 
 export async function fetchWorkflowRuns(): Promise<WorkflowRun[]> {
-  const response = await request<{ runs: WorkflowRun[] }>("/v1/workflow-runs");
-  return response.runs;
+  const response = await request<{ runs: WorkflowRun[] | null }>("/v1/workflow-runs");
+  return response.runs ?? [];
 }
 
 export async function fetchResults(): Promise<Result[]> {
-  const response = await request<{ results: Result[] }>("/v1/results");
-  return response.results;
+  const response = await request<{ results: Result[] | null }>("/v1/results");
+  return response.results ?? [];
 }
 
 export function fetchQueue(): Promise<QueueStatus> {
