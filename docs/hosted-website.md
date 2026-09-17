@@ -5,7 +5,9 @@ an API key, or sign in to Docker. Docker and Codex run on the hosting server.
 
 ## Visitor flow
 
-1. Continue with Google. The first sign-in creates a website account.
+1. Continue with Google, or choose **Create an account** and enter an email
+   address. For email signup, follow the verification link and choose a password.
+   Both options create a persistent website account.
 2. Open the ChatGPT connection panel and choose **Connect ChatGPT**.
 3. Follow the OpenAI link, enter the displayed code, and approve the connection.
    Device-code login may need to be enabled in the user's ChatGPT security settings.
@@ -22,7 +24,7 @@ website account or discard saved data.
 
 ## Hosting setup
 
-This implementation uses Google sign-in by default. You need a Google **Web
+For Google sign-in, you need a Google **Web
 application** OAuth client. Register this exact authorized redirect URI:
 
 ```
@@ -34,6 +36,38 @@ testing mode, add your testers to its test-user list. Request only the basic
 `openid email profile` scopes. The website gets identity from Google's
 authenticated userinfo endpoint and uses the stable Google subject as account
 identity, rather than trusting browser-provided email fields.
+
+For email/password signup and recovery, configure a dedicated account email sender:
+
+```dotenv
+ORCH_AUTH_SMTP_HOST=smtp.example.com
+ORCH_AUTH_SMTP_PORT=587
+ORCH_AUTH_SMTP_USERNAME=your-smtp-user
+ORCH_AUTH_SMTP_PASSWORD=your-smtp-password
+ORCH_AUTH_SMTP_FROM=accounts@example.com
+```
+
+This requires authenticated SMTP with STARTTLS and a valid server certificate.
+Account email is separate from job-notification email. Without this configuration,
+Google and existing password sign-ins still work, but new email signup and password
+recovery are unavailable. At least Google or account SMTP must be configured to start.
+Configure both to offer both signup options. Real delivery must be tested with your
+sender before inviting users; delivery failures appear in server logs without tokens.
+
+Email accounts are created only after mailbox verification; pending links do not
+consume signup capacity. Passwords require at least 15 characters and are stored
+as salted PBKDF2-HMAC-SHA256 hashes with 600,000 iterations. Verification/recovery
+links expire in 30 minutes, are single-use, and are stored only as token hashes.
+Link tokens use URL fragments, so they do not enter normal HTTP access logs.
+Password recovery invalidates previous sessions and preserves the workspace.
+
+Google sign-in with the same verified address as an email-created account opens
+that account. A Google-created account can use **Forgot password?** to verify its
+mailbox and add password access. Distinct Google subjects are never automatically
+merged; ambiguous legacy email addresses cannot use password recovery. Changing
+the Google account's email does not automatically change the website account email.
+
+For a free pilot, see [Free hosting setup](free-hosting.md).
 
 On a Linux server with Docker Compose, point your domain's DNS at the server and
 allow inbound ports 80 and 443. Put these values in a private `.env` file:
@@ -135,12 +169,13 @@ go test ./...
 go test -race ./internal/hosted ./internal/codex ./internal/llm
 ORCH_TEST_CODEX=1 go test ./internal/codex -run TestRealCodexHandshake -v
 # Use a disposable database; the hosted integration tests create their own schemas.
-ORCH_TEST_DATABASE_URL=postgres://... go test ./internal/hosted -run TestPostgresHosted -v
+ORCH_TEST_DATABASE_URL=postgres://... go test ./internal/hosted -run TestPostgres -v
 cd ../frontend
 npm run build
 ```
 
-Before inviting users, exercise Google sign-in and ChatGPT device-code approval
+Before inviting users, exercise Google sign-in, email signup, password recovery,
+and ChatGPT device-code approval
 with two real accounts, create a monitor in each, restart the deployment, and
 verify both accounts retain only their own data. These interactive provider
 approvals require the account owners.

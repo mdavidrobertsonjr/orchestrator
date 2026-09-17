@@ -2,7 +2,7 @@
 
 A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad software engineering roles and sends tracked email alerts when useful matches appear.
 
-This repository is intended as a public engineering showcase and a locally runnable project. There is no hosted public API or shared compute; screenshots show the dashboard running against a local or self-hosted backend.
+This repository runs locally or as an account-based website on your own server. No public instance is deployed by this repository; screenshots show a local or self-hosted backend. See [public website setup](docs/hosted-website.md) for Google and email/password accounts with saved workspaces.
 
 ## Highlights
 
@@ -210,7 +210,7 @@ Backend-specific API notes are in [backend/README.md](backend/README.md). Fronte
 
 ## Public website accounts
 
-For a hosted website where visitors sign in with Google, connect their own
+For a hosted website where visitors sign in with Google or email/password, connect their own
 ChatGPT account, and keep separate saved jobs, see
 [the hosted website guide](docs/hosted-website.md). Visitors only need a browser.
 This uses the separate `compose.hosted.yaml` deployment; the existing private

@@ -10,8 +10,13 @@ services:
     environment:
       ORCH_ADDR: ":8080"
       ORCH_PUBLIC_URL: "https://${ORCH_DOMAIN:?Set ORCH_DOMAIN}"
-      ORCH_GOOGLE_CLIENT_ID: "${ORCH_GOOGLE_CLIENT_ID:?Set Google web OAuth client ID}"
-      ORCH_GOOGLE_CLIENT_SECRET: "${ORCH_GOOGLE_CLIENT_SECRET:?Set Google web OAuth client secret}"
+      ORCH_GOOGLE_CLIENT_ID: "${ORCH_GOOGLE_CLIENT_ID:-}"
+      ORCH_GOOGLE_CLIENT_SECRET: "${ORCH_GOOGLE_CLIENT_SECRET:-}"
+      ORCH_AUTH_SMTP_HOST: "${ORCH_AUTH_SMTP_HOST:-}"
+      ORCH_AUTH_SMTP_PORT: "${ORCH_AUTH_SMTP_PORT:-587}"
+      ORCH_AUTH_SMTP_USERNAME: "${ORCH_AUTH_SMTP_USERNAME:-}"
+      ORCH_AUTH_SMTP_PASSWORD: "${ORCH_AUTH_SMTP_PASSWORD:-}"
+      ORCH_AUTH_SMTP_FROM: "${ORCH_AUTH_SMTP_FROM:-}"
       ORCH_DATABASE_URL: "postgres://orchestrator:${ORCH_HOSTED_DB_PASSWORD:?Set a URL-safe database password}@database:5432/orchestrator?sslmode=disable"
       ORCH_USER_DATA_DIR: /var/lib/orchestrator/users
       ORCH_MAX_USERS: "${ORCH_MAX_USERS:-5}"

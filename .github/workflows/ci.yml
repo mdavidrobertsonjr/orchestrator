@@ -47,6 +47,9 @@ jobs:
       - run: go test -tags=integration ./internal/integration
         env:
           ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+      - run: go test ./internal/hosted -run TestPostgres -v
+        env:
+          ORCH_TEST_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 
   frontend:
     runs-on: ubuntu-latest
@@ -70,3 +73,4 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - run: docker build --target api -t orchestrator-api .
       - run: docker build --target worker -t orchestrator-worker .
+      - run: docker build --target hosted -t orchestrator-hosted .
