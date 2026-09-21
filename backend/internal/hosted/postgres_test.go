@@ -59,7 +59,7 @@ func TestPostgresHosted(t *testing.T) {
 	root := t.TempDir()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runCtx, stop := context.WithCancel(ctx)
-	runtimes := NewRuntimes(runCtx, accounts, dsn, root, "/unused-codex", "", logger)
+	runtimes := NewRuntimes(runCtx, accounts, dsn, root, "/unused-codex", "", logger, nil)
 	server := NewServer(accounts, runtimes, GoogleAuth{Origin: "https://jobs.example"}, "", logger)
 	request := func(token, method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -121,7 +121,7 @@ func TestPostgresHosted(t *testing.T) {
 	// Restore uses all durable account IDs, not the last browser session.
 	runCtx, stop = context.WithCancel(ctx)
 	defer stop()
-	runtimes = NewRuntimes(runCtx, accounts, dsn, root, "/unused-codex", "", logger)
+	runtimes = NewRuntimes(runCtx, accounts, dsn, root, "/unused-codex", "", logger, nil)
 	defer runtimes.Close()
 	if err := runtimes.Restore(ctx); err != nil {
 		t.Fatal(err)

@@ -30,6 +30,7 @@ type SimulatedExecutor struct {
 	emailSender       email.Sender
 	notifications     notifications.Store
 	defaultRecipients []string
+	allowedRecipients []string
 	httpClient        *http.Client
 }
 
@@ -39,6 +40,13 @@ func NewSimulatedExecutor(logger *slog.Logger, monitorRunner *monitor.Runner, re
 
 func (e *SimulatedExecutor) SetDefaultRecipients(recipients []string) {
 	e.defaultRecipients = cleanRecipients(recipients)
+}
+
+// SetAllowedRecipients constrains all hosted deliveries to verified account
+// addresses. Private deployments leave this unset and retain their existing
+// recipient behavior.
+func (e *SimulatedExecutor) SetAllowedRecipients(recipients []string) {
+	e.allowedRecipients = cleanRecipients(recipients)
 }
 
 func (e *SimulatedExecutor) SetNotificationStore(store notifications.Store) {
@@ -211,6 +219,7 @@ func (e *SimulatedExecutor) sendMonitorAlert(ctx context.Context, job *jobs.Job,
 	if len(config.recipients) == 0 {
 		config.recipients = e.defaultRecipients
 	}
+	config.recipients = e.filterAllowedRecipients(config.recipients)
 	if len(config.recipients) == 0 {
 		logf("monitor alert skipped; no recipients configured")
 		return false, nil
@@ -503,6 +512,7 @@ func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, job *jobs.Job, 
 	if len(parsed.Recipients) == 0 {
 		parsed.Recipients = e.defaultRecipients
 	}
+	parsed.Recipients = e.filterAllowedRecipients(parsed.Recipients)
 
 	body := reportBody(parsed.Kind)
 	if parsed.Kind == "monitor_digest" {
@@ -518,6 +528,23 @@ func (e *SimulatedExecutor) sendEmailReport(ctx context.Context, job *jobs.Job, 
 			"schedule": parsed.Schedule,
 		},
 	}, logf)
+}
+
+func (e *SimulatedExecutor) filterAllowedRecipients(recipients []string) []string {
+	if len(e.allowedRecipients) == 0 {
+		return cleanRecipients(recipients)
+	}
+	allowed := make(map[string]struct{}, len(e.allowedRecipients))
+	for _, recipient := range e.allowedRecipients {
+		allowed[strings.ToLower(recipient)] = struct{}{}
+	}
+	filtered := make([]string, 0, len(recipients))
+	for _, recipient := range cleanRecipients(recipients) {
+		if _, ok := allowed[strings.ToLower(recipient)]; ok {
+			filtered = append(filtered, recipient)
+		}
+	}
+	return filtered
 }
 
 func (e *SimulatedExecutor) sendTrackedEmail(ctx context.Context, job *jobs.Job, sender email.Sender, message email.Message, logf func(string)) error {

@@ -15,6 +15,7 @@ import (
 
 	"orchestrator/backend/internal/api"
 	"orchestrator/backend/internal/codex"
+	"orchestrator/backend/internal/email"
 	"orchestrator/backend/internal/jobs"
 	"orchestrator/backend/internal/llm"
 	"orchestrator/backend/internal/monitor"
@@ -55,11 +56,12 @@ type Runtimes struct {
 	accounts                 *Accounts
 	ctx                      context.Context
 	dsn, root, binary, model string
+	emailSender              email.Sender
 	logger                   *slog.Logger
 }
 
-func NewRuntimes(ctx context.Context, a *Accounts, dsn, root, binary, model string, logger *slog.Logger) *Runtimes {
-	return &Runtimes{items: map[string]*Runtime{}, accounts: a, ctx: ctx, dsn: dsn, root: root, binary: binary, model: model, logger: logger}
+func NewRuntimes(ctx context.Context, a *Accounts, dsn, root, binary, model string, logger *slog.Logger, emailSender email.Sender) *Runtimes {
+	return &Runtimes{items: map[string]*Runtime{}, accounts: a, ctx: ctx, dsn: dsn, root: root, binary: binary, model: model, logger: logger, emailSender: emailSender}
 }
 func (m *Runtimes) Restore(ctx context.Context) error {
 	users, err := m.accounts.Users(ctx)
@@ -174,7 +176,9 @@ func (m *Runtimes) Get(u User) (*Runtime, error) {
 	client := publicHTTPClient()
 	sources := map[string]monitor.Source{"greenhouse": monitor.NewGreenhouseSource(client), "lever": monitor.NewLeverSource(client), "ashby": monitor.NewAshbySource(client), "workday": monitor.NewWorkdaySource(client), "custom": monitor.NewCustomSource(client)}
 	runner := monitor.NewRunner(ps, sources)
-	executor := worker.NewSimulatedExecutor(m.logger, runner, rs, nil)
+	executor := worker.NewSimulatedExecutor(m.logger, runner, rs, m.emailSender)
+	executor.SetDefaultRecipients([]string{u.Email})
+	executor.SetAllowedRecipients([]string{u.Email})
 	executor.SetHTTPClient(client)
 	executor.SetNotificationStore(ns)
 	// Hosted accounts never inherit the private instance's SMTP recipients/key.

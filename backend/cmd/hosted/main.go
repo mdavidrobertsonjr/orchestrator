@@ -91,7 +91,7 @@ func run() error {
 	}
 	defer release()
 	logger := slog.Default()
-	runtimes := hosted.NewRuntimes(ctx, a, dsn, root, binary, os.Getenv("ORCH_CODEX_MODEL"), logger)
+	runtimes := hosted.NewRuntimes(ctx, a, dsn, root, binary, os.Getenv("ORCH_CODEX_MODEL"), logger, mailer)
 	defer runtimes.Close()
 	if err := runtimes.Restore(ctx); err != nil {
 		return err

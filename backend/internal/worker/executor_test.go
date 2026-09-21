@@ -312,6 +312,15 @@ func TestMonitorNotificationPreferences(t *testing.T) {
 	}
 }
 
+func TestHostedNotificationRecipientsAreRestrictedToAccountEmail(t *testing.T) {
+	executor := &SimulatedExecutor{}
+	executor.SetAllowedRecipients([]string{"owner@example.com"})
+	got := executor.filterAllowedRecipients([]string{"other@example.com", "OWNER@example.com"})
+	if len(got) != 1 || got[0] != "OWNER@example.com" {
+		t.Fatalf("expected only the account recipient, got %#v", got)
+	}
+}
+
 func TestSimulatedExecutorDetectsMaxMonitorAlerts(t *testing.T) {
 	resultStore := results.NewMemoryStore()
 	if _, err := resultStore.Create(results.CreateResultParams{
