@@ -78,7 +78,7 @@ const navItems: NavItem[] = [
   {
     id: "overview",
     label: "Overview",
-    description: "Runtime health",
+    description: "Matches & monitoring",
     icon: <LayoutDashboard size={18} />
   },
   {
@@ -238,6 +238,7 @@ const initialWorkflowForm: WorkflowFormState = {
 export function App({ aiConnected }: { aiConnected?: boolean }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
+  const [homePostings, setHomePostings] = useState<Posting[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
@@ -313,7 +314,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults] =
+      const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults, nextHomePostings] =
         await Promise.all([
           fetchHealth(),
           fetchJobs(),
@@ -323,7 +324,8 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           fetchPostings(postingQuery),
           fetchWorkflows(),
           fetchWorkflowRuns(),
-          fetchResults()
+          fetchResults(),
+          fetchPostings({ minScore: 20, freshness: "current", applied: "not_applied", pageSize: 200 })
         ]);
       setJobs(nextJobs);
       setWorkers(nextWorkers);
@@ -333,6 +335,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       setWorkflows(nextWorkflows);
       setWorkflowRuns(nextRuns);
       setResults(nextResults);
+      setHomePostings(nextHomePostings);
       setApiOnline(true);
       setLastUpdated(new Date());
       setSyncError(null);
@@ -387,6 +390,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
     try {
       const updated = await updatePostingApplied(posting.id, applied);
       setPostings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      if (applied) setHomePostings((current) => current.filter((item) => item.id !== updated.id));
       setError(null);
       await refresh();
     } catch (err) {
@@ -405,6 +409,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       await deletePosting(posting.id);
       dismissedPostingIDs.current.add(posting.id);
       setPostings((current) => current.filter((item) => item.id !== posting.id));
+      setHomePostings((current) => current.filter((item) => item.id !== posting.id));
       setError(null);
       await refresh();
     } catch (err) {
@@ -556,7 +561,24 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
 
   const overviewPanels = (
     <>
-      {!loading && workflows.length === 0 && jobs.length === 0 && <div className="getting-started"><div><strong>Create your first monitor</strong><p>Describe the roles you want in Commands. Follow its runs in Jobs and find matches in Postings.</p></div><button className="primary-button" type="button" onClick={() => setActiveSection("commands")}>Create a monitor</button></div>}
+      <MatchesOverview
+        postings={homePostings}
+        workflows={workflows}
+        jobs={jobs}
+        loading={loading}
+        updatingID={updatingPostingID}
+        onApplied={(posting) => void handlePostingApplied(posting, true)}
+        onNavigate={setActiveSection}
+        onViewPostings={() => {
+          const filters = { ...defaultPostingFilters, minScore: 20, applied: "not_applied" as const };
+          setPostingFilters(filters);
+          setPostingFilterForm(filters);
+          setActiveSection("postings");
+        }}
+        onSelectJob={(id) => { setSelectedJobID(id); setActiveSection("jobs"); }}
+      />
+      <details className="runtime-details">
+        <summary>Runtime details <span>Queues, workers, execution history, and diagnostics</span></summary>
       <SummaryGrid summary={summary} />
       <section className="dashboard-grid compact-grid">
         <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
@@ -597,6 +619,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           </Panel>
         </div>
       </section>
+      </details>
     </>
   );
 
@@ -737,7 +760,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Distributed Job Runtime</p>
+            <p className="eyebrow">{activeSection === "overview" ? "Your job search, on autopilot" : "Orchestrator workspace"}</p>
             <h1>{activeNavItem.label}</h1>
           </div>
           <div className="topbar-actions">
@@ -765,6 +788,55 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       </main>
     </div>
   );
+}
+
+function MatchesOverview({ postings, workflows, jobs, loading, updatingID, onApplied, onNavigate, onViewPostings, onSelectJob }: {
+  postings: Posting[];
+  workflows: Workflow[];
+  jobs: Job[];
+  loading: boolean;
+  updatingID: string | null;
+  onApplied: (posting: Posting) => void;
+  onNavigate: (section: DashboardSection) => void;
+  onViewPostings: () => void;
+  onSelectJob: (id: string) => void;
+}) {
+  const monitors = workflows.filter((workflow) => workflow.job_type === "jobs.monitor.new_grad");
+  const enabled = monitors.filter((workflow) => workflow.enabled);
+  const monitorJobs = jobs.filter((job) => job.type === "jobs.monitor.new_grad");
+  const lastSuccess = monitorJobs.filter((job) => job.status === "succeeded").sort((a, b) => Date.parse(b.finished_at ?? b.updated_at) - Date.parse(a.finished_at ?? a.updated_at))[0];
+  const next = [...enabled].sort((a, b) => Date.parse(a.next_run_at) - Date.parse(b.next_run_at))[0];
+  const running = monitorJobs.filter((job) => job.status === "running").length;
+  const failed = monitors.flatMap((workflow) => {
+    const job = monitorJobs.find((item) => item.id === workflow.last_job_id);
+    return job && (job.status === "failed" || job.status === "dead_letter") ? [{ workflow, job }] : [];
+  });
+  const recent = [...postings].filter((posting) => !posting.applied_at).sort((a, b) => Date.parse(b.first_seen_at) - Date.parse(a.first_seen_at)).slice(0, 8);
+  return <section className="matches-overview" aria-label="Job search overview">
+    <div className="matches-heading"><div><h2>Your matches</h2><p>Explore roles while your monitors keep checking in the background.</p></div><button className="primary-button" type="button" onClick={() => onNavigate("commands")}>Add a monitor</button></div>
+    <div className="monitor-summary">
+      <div><span>Active monitors</span><strong>{loading ? "…" : enabled.length}</strong><button className="link-button" type="button" onClick={() => onNavigate("workflows")}>Manage schedules</button></div>
+      <div><span>Last successful check</span><strong>{loading ? "…" : lastSuccess ? relativeTime(lastSuccess.finished_at ?? lastSuccess.updated_at) : "No completed checks yet"}</strong><small>{running ? `${running} ${running === 1 ? "check" : "checks"} running now` : "See individual runs in Jobs"}</small></div>
+      <div><span>Next scheduled check</span><strong title={next ? new Date(next.next_run_at).toLocaleString() : undefined}>{loading ? "…" : next ? upcomingCheck(next.next_run_at) : monitors.length ? "All monitors paused" : "No monitor yet"}</strong><small>{next?.name ?? "Set a schedule to check automatically"}</small></div>
+    </div>
+    {failed.length > 0 && <div className="monitor-issues" role="status"><strong>Some checks need attention</strong><p>Other monitors can continue. Review these runs for affected sources and retry details.</p>{failed.map(({ workflow, job }) => <button className="link-button" type="button" key={job.id} onClick={() => onSelectJob(job.id)}>{workflow.name} — view failed check</button>)}</div>}
+    <div className="matches-list-heading"><div><h3>Roles to explore</h3><p>Current matches you haven’t marked as applied. Most recently found first.</p></div><button className="link-button" type="button" onClick={onViewPostings}>View all matches</button></div>
+    {loading ? <EmptyState label="Loading your matches" /> : recent.length === 0 ? <div className="match-empty"><h3>{monitors.length === 0 ? "Start with the roles you want" : "No new roles to review yet"}</h3><p>{monitors.length === 0 ? "Tell us which companies, roles, and locations interest you. We’ll keep checking for matches." : enabled.length === 0 ? "Your monitors are paused. Enable one to start finding roles again." : "Your monitors will keep checking. You can review previous roles and adjust filters in Postings."}</p><button className="primary-button" type="button" onClick={() => onNavigate(monitors.length === 0 ? "commands" : "workflows")}>{monitors.length === 0 ? "Create your first monitor" : "Manage monitors"}</button></div> : <div className="match-cards">{recent.map((posting) => <article className="match-card" key={posting.id}>
+      <div className="match-card-top"><span>{posting.company}</span><span className="score-badge" title="Relevance score from your monitor’s matching rules">Match {posting.match_score ?? 0}</span></div>
+      <h3><a href={posting.url} target="_blank" rel="noreferrer">{posting.title}<ExternalLink size={15} aria-hidden="true" /></a></h3>
+      <p>{posting.location || "Location not specified"}</p>
+      <div className="match-card-footer"><small title={new Date(posting.first_seen_at).toLocaleString()}>Found {relativeTime(posting.first_seen_at)}</small><button className="application-button" type="button" disabled={updatingID === posting.id} aria-label={`Mark ${posting.title} at ${posting.company} as applied`} onClick={() => onApplied(posting)}>{updatingID === posting.id ? "Saving…" : "Mark applied"}</button></div>
+    </article>)}</div>}
+  </section>;
+}
+
+function upcomingCheck(value: string) {
+  const minutes = Math.ceil((Date.parse(value) - Date.now()) / 60000);
+  if (!Number.isFinite(minutes)) return "Schedule unavailable";
+  if (minutes <= 0) return "Due now";
+  if (minutes < 60) return `In ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.round(minutes / 60);
+  return `In ${hours} ${hours === 1 ? "hour" : "hours"}`;
 }
 
 function AuthScreen({
@@ -1761,7 +1833,7 @@ function WorkflowsTable({
                   </span>
                 </td>
                 <td>{formatInterval(workflow.interval_seconds)}</td>
-                <td>{relativeTime(workflow.next_run_at)}</td>
+                <td title={new Date(workflow.next_run_at).toLocaleString()}>{workflow.enabled ? upcomingCheck(workflow.next_run_at) : "Paused"}</td>
                 <td>
                   {recentRuns.length > 0 ? (
                     <div className="run-list">

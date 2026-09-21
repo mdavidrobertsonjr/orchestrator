@@ -103,6 +103,39 @@ const path = require('node:path');
     assert.deepEqual(errors, []);
     console.log('PASS: connected planning feedback, independent forms, navigation, success, and retryable errors.');
 
+    const now = Date.now();
+    const timestamp = offset => new Date(now + offset).toISOString();
+    const olderRole = { id: 'older-role', company: 'Example', title: 'Graduate Engineer', url: 'https://example.com/jobs/older', source: 'ashby', dedupe_key: 'older', first_seen_at: timestamp(-86400000), last_seen_at: timestamp(0), match_score: 90 };
+    const newerRole = { ...olderRole, id: 'newer-role', title: 'New Grad Software Engineer', url: 'https://example.com/jobs/newer', first_seen_at: timestamp(-60000), match_score: 30 };
+    let appliedRole = false;
+    await page.route('**/v1/postings**', r => {
+      if (r.request().method() === 'PATCH') { appliedRole = true; return r.fulfill({ json: { ...newerRole, applied_at: timestamp(0) } }); }
+      return r.fulfill({ json: { postings: appliedRole ? [olderRole] : [olderRole, newerRole] } });
+    });
+    const successfulCheck = { id: 'successful-check', name: 'Role check', type: 'jobs.monitor.new_grad', status: 'succeeded', created_at: timestamp(-600000), updated_at: timestamp(-300000), finished_at: timestamp(-300000), attempts: 1, max_attempts: 2 };
+    const failedCheck = { ...successfulCheck, id: 'failed-check', name: 'Failed source check', status: 'failed' };
+    await page.route('**/v1/jobs', r => r.fulfill({ json: { jobs: [successfulCheck, failedCheck] } }));
+    const monitor = { id: 'active-monitor', name: 'Hourly monitor', job_type: 'jobs.monitor.new_grad', enabled: true, interval_seconds: 3600, next_run_at: timestamp(3600000), last_job_id: 'successful-check', created_at: timestamp(-86400000), updated_at: timestamp(0), max_attempts: 2 };
+    await page.route('**/v1/workflows', r => r.fulfill({ json: { workflows: [monitor, { ...monitor, id: 'paused-monitor', name: 'Paused monitor', enabled: false, next_run_at: timestamp(-3600000), last_job_id: 'failed-check' }] } }));
+    await page.reload();
+    await page.locator('.match-card').first().waitFor();
+    assert.equal(await page.locator('.match-card h3').first().innerText(), 'New Grad Software Engineer', 'Newest match should be first, regardless of score');
+    assert((await page.locator('.monitor-summary').innerText()).includes('In 1 hour'), 'Paused schedules must not determine the next check');
+    assert.equal(await page.locator('.monitor-summary strong').first().innerText(), '1');
+    assert(await page.getByRole('button', { name: 'Paused monitor — view failed check' }).isVisible());
+    assert.equal(await page.locator('.runtime-details').getAttribute('open'), null);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Match overview overflows mobile viewport');
+    await page.screenshot({ path: '/tmp/orchestrator-matches-mobile.png', fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({ path: '/tmp/orchestrator-matches-desktop.png', fullPage: true });
+    await page.getByRole('button', { name: 'Mark New Grad Software Engineer at Example as applied' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.match-card').length === 1);
+    assert.equal(await page.locator('.match-card h3').innerText(), 'Graduate Engineer');
+    await page.getByRole('button', { name: 'View all matches', exact: true }).click();
+    assert.equal(await page.locator('h1').innerText(), 'Postings');
+    assert.deepEqual(errors, []);
+    console.log('PASS: match overview ordering, active schedules, failed checks, application updates, and mobile layout.');
+
     invalidMetrics = true;
     await page.reload();
     await page.getByRole('button', { name: 'Reload workspace', exact: true }).waitFor();
