@@ -138,7 +138,7 @@ function HostedApp({ providers }: { providers: { google: boolean; email_signup: 
         </section>
       )}
       {error && <div className="account-notice" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
-      <App key={user.id} />
+      <App key={user.id} aiConnected={connection.connected} />
     </>
   );
 }

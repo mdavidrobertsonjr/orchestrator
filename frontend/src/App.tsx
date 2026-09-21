@@ -10,6 +10,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListChecks,
+  LoaderCircle,
   Pause,
   Play,
   RefreshCw,
@@ -234,7 +235,7 @@ const initialWorkflowForm: WorkflowFormState = {
   )
 };
 
-export function App() {
+export function App({ aiConnected }: { aiConnected?: boolean }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [postings, setPostings] = useState<Posting[]>([]);
   const [results, setResults] = useState<Result[]>([]);
@@ -254,7 +255,9 @@ export function App() {
   const [commandResult, setCommandResult] = useState<string | null>(null);
   const [selectedJobID, setSelectedJobID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [apiOnline, setApiOnline] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -332,7 +335,7 @@ export function App() {
       setResults(nextResults);
       setApiOnline(true);
       setLastUpdated(new Date());
-      setError(null);
+      setSyncError(null);
     } catch (err) {
       setApiOnline(false);
       const message = err instanceof Error ? err.message : "failed to refresh dashboard";
@@ -340,7 +343,7 @@ export function App() {
         clearAuthToken();
         setAuthRequired(true);
       }
-      setError(message);
+      setSyncError(message);
     } finally {
       setLoading(false);
     }
@@ -429,7 +432,8 @@ export function App() {
 
   async function handleNaturalCommandSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
+    if (planning || aiConnected === false || !commandPrompt.trim()) return;
+    setPlanning(true);
     setError(null);
     setCommandResult(null);
 
@@ -441,24 +445,26 @@ export function App() {
         setCommandResult(`Queued job: ${created.job.name}`);
       } else if (created.action === "workflow" && created.workflow) {
         setActiveSection("workflows");
-        setCommandResult(`Created workflow: ${created.workflow.name}`);
+        setCommandResult(`Workflow saved: ${created.workflow.name}. ${created.workflow.enabled ? "It runs every " + formatInterval(created.workflow.interval_seconds) + ", even when this page is closed." + (created.workflow.job_type === "jobs.monitor.new_grad" ? " Matches appear in Postings." : " Follow progress in Jobs.") : "It is paused. Enable it in Workflows when you are ready."}`);
       }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to run command");
     } finally {
-      setSubmitting(false);
+      setPlanning(false);
     }
   }
 
   async function handleWorkflowSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
+    if (scheduling) return;
+    setScheduling(true);
+    setCommandResult(null);
     setError(null);
 
     try {
       const payload = JSON.parse(workflowForm.payload) as Record<string, unknown>;
-      await createWorkflow({
+      const created = await createWorkflow({
         name: workflowForm.name.trim() || workflowForm.jobType.trim(),
         job_type: workflowForm.jobType.trim(),
         max_attempts: workflowForm.maxAttempts,
@@ -469,11 +475,13 @@ export function App() {
           submitted_by: "dashboard"
         }
       });
+      setCommandResult(`Workflow saved: ${created.name}. ${created.enabled ? "It continues running when this page is closed." : "It is paused until you enable it."}`);
+      setActiveSection("workflows");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to create workflow");
     } finally {
-      setSubmitting(false);
+      setScheduling(false);
     }
   }
 
@@ -548,6 +556,7 @@ export function App() {
 
   const overviewPanels = (
     <>
+      {!loading && workflows.length === 0 && jobs.length === 0 && <div className="getting-started"><div><strong>Create your first monitor</strong><p>Describe the roles you want in Commands. Follow its runs in Jobs and find matches in Postings.</p></div><button className="primary-button" type="button" onClick={() => setActiveSection("commands")}>Create a monitor</button></div>}
       <SummaryGrid summary={summary} />
       <section className="dashboard-grid compact-grid">
         <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
@@ -672,19 +681,19 @@ export function App() {
     ),
     commands: (
       <section className="command-grid">
-        <Panel title="Tell Orchestrator What To Do" subtitle="Turn plain English into a job or recurring workflow">
+        <Panel title="Tell Orchestrator what to do" subtitle="Describe the task and how often it should run. We’ll create the job or schedule for you.">
           <NaturalCommandForm
             prompt={commandPrompt}
-            result={commandResult}
-            submitting={submitting}
+            submitting={planning}
+            connected={aiConnected !== false}
             onChange={setCommandPrompt}
             onSubmit={handleNaturalCommandSubmit}
           />
         </Panel>
-        <Panel title="Configure Workflow" subtitle="Create recurring monitoring without editing JSON">
+        <Panel title="Or, set up a schedule yourself" subtitle="Use the form below for recurring work. No ChatGPT connection needed.">
           <WorkflowForm
             form={workflowForm}
-            submitting={submitting}
+            submitting={scheduling}
             onChange={setWorkflowForm}
             onSubmit={handleWorkflowSubmit}
           />
@@ -712,6 +721,7 @@ export function App() {
               className={`nav-item ${item.id === activeSection ? "active" : ""}`}
               type="button"
               key={item.id}
+              aria-current={item.id === activeSection ? "page" : undefined}
               onClick={() => setActiveSection(item.id)}
             >
               {item.icon}
@@ -746,7 +756,10 @@ export function App() {
           </div>
         </header>
 
-        {error && <div className="alert">{error}</div>}
+        {syncError && <div className="alert" role="status">Unable to refresh: {syncError}. Your last loaded data is still shown.</div>}
+        {error && <div className="alert feedback-banner" role="alert"><span>{error}</span><button className="icon-button" type="button" aria-label="Dismiss error" onClick={() => setError(null)}><XCircle size={18} /></button></div>}
+        {planning && <PlanningStatus />}
+        {commandResult && <div className="success-note feedback-banner" role="status"><CheckCircle2 size={19} aria-hidden="true" /><span>{commandResult}</span><button className="icon-button" type="button" aria-label="Dismiss confirmation" onClick={() => setCommandResult(null)}><XCircle size={18} /></button></div>}
 
         {sectionContent[activeSection]}
       </main>
@@ -988,23 +1001,40 @@ function SourceHealthPanel({
   );
 }
 
+function PlanningStatus() {
+  const [startedAt] = useState(() => Date.now());
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+  return <div className="planning-status">
+    <LoaderCircle className="spinning" size={22} aria-hidden="true" />
+    <div role="status"><strong>Generating plan…</strong><p>{seconds >= 30 ? "Still working. Some requests take longer; you don’t need to submit again." : "ChatGPT is turning your request into a job or schedule. This can take a little time."}</p></div>
+    <span className="planning-elapsed" aria-hidden="true">{seconds}s</span>
+  </div>;
+}
+
 function NaturalCommandForm({
   prompt,
-  result,
+  connected,
   submitting,
   onChange,
   onSubmit
 }: {
   prompt: string;
-  result: string | null;
+  connected: boolean;
   submitting: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <form className="submit-form" onSubmit={onSubmit}>
+    <form className="submit-form" onSubmit={onSubmit} aria-busy={submitting}>
       <label>
+        <span>What would you like to automate?</span>
         <textarea
+          disabled={submitting}
+          aria-describedby="command-help"
           aria-label="Instructions for Orchestrator"
           className="command-request"
           value={prompt}
@@ -1012,11 +1042,12 @@ function NaturalCommandForm({
           rows={2}
         />
       </label>
-      <button className="primary-button" type="submit" disabled={submitting || prompt.trim() === ""}>
-        <Send size={16} />
-        {submitting ? "Planning" : "Run Command"}
+      <p className="form-hint" id="command-help">Include “every hour” or “daily” for a recurring workflow, or “once” for a single job. A successful plan is saved automatically.</p>
+      {!connected && <p className="form-hint connection-hint">Connect ChatGPT at the top of the page to generate a plan, or use the schedule form below.</p>}
+      <button className="primary-button" type="submit" disabled={submitting || !connected || prompt.trim() === ""}>
+        {submitting ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+        {submitting ? "Generating plan…" : "Run Command"}
       </button>
-      {result && <div className="success-note">{result}</div>}
     </form>
   );
 }
@@ -1145,11 +1176,11 @@ function WorkflowForm({
       <div className="workflow-actions">
         <label className="checkbox-field">
           <input type="checkbox" checked={form.enabled} onChange={(event) => onChange({ ...form, enabled: event.target.checked })} />
-          <span>Enabled</span>
+          <span>Start automatically</span>
         </label>
         <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
           <Send size={16} />
-          {submitting ? "Scheduling" : "Schedule Workflow"}
+          {submitting ? "Saving schedule…" : "Save schedule"}
         </button>
       </div>
     </form>

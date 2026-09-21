@@ -35,6 +35,7 @@ button {
 }
 
 .sidebar {
+  min-width: 0;
   background: #17202a;
   color: #f7f9fb;
   padding: 22px 16px;
@@ -1290,7 +1291,7 @@ textarea {
 
 @media (max-width: 1120px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
@@ -1369,4 +1370,38 @@ textarea {
   .queue-meter {
     grid-template-columns: 1fr;
   }
+}
+
+.feedback-banner,
+.planning-status,
+.getting-started {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.feedback-banner > span { flex: 1; }
+.feedback-banner > svg,
+.planning-status > svg { flex-shrink: 0; }
+.planning-status,
+.getting-started {
+  background: #eff6ff;
+  border: 1px solid #c5dbf5;
+  border-radius: 8px;
+  color: #204c77;
+  padding: 16px;
+}
+.planning-status > div,
+.getting-started > div { flex: 1; }
+.planning-status p,
+.getting-started p { font-size: 13px; line-height: 1.5; margin: 5px 0 0; }
+.planning-elapsed { font-size: 13px; font-variant-numeric: tabular-nums; }
+.form-hint { color: #526579; font-size: 13px; line-height: 1.5; margin: 0; }
+.connection-hint { background: #fff7e6; border-radius: 6px; color: #77551e; padding: 10px; }
+.spinning { animation: planning-spin 1s linear infinite; }
+@keyframes planning-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+@media (max-width: 640px) {
+  .getting-started { align-items: stretch; flex-direction: column; }
+  .planning-status { align-items: flex-start; }
 }
