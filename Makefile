@@ -8,7 +8,7 @@ endif
 POSTGRES_URL := postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
 BACKEND_ENV := GOCACHE=/tmp/go-build-cache ORCH_ADDR=:8080 ORCH_WORKERS=2
 
-.PHONY: dev dev-postgres dev-distributed smoke-distributed smoke-postgres compose-app compose-app-stop check-deploy website website-postgres frontend backend worker postgres postgres-stop demo seed-job-monitors prune-postings test
+.PHONY: dev dev-postgres dev-distributed smoke-distributed smoke-postgres migration-gate migrate-postgres compose-app compose-app-stop check-deploy website website-postgres frontend backend worker postgres postgres-stop demo seed-job-monitors prune-postings test
 
 dev:
 	(cd backend && env $(BACKEND_ENV) go run ./cmd/api) & \
@@ -52,6 +52,12 @@ smoke-distributed:
 
 smoke-postgres: postgres
 	bash scripts/smoke_postgres.sh
+
+migrate-postgres: postgres
+	cd backend && env GOCACHE=/tmp/go-build-cache ORCH_DATABASE_URL='$(POSTGRES_URL)' go run ./cmd/migrate
+
+migration-gate: postgres
+	bash scripts/migration_gate.sh
 
 compose-app:
 	docker compose --profile app up --build
