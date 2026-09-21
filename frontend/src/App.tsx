@@ -553,6 +553,9 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
 
   const overviewPanels = (
     <>
+      {(!loading && workflows.length === 0 && jobs.length === 0) && (
+        <GettingStarted aiConnected={aiConnected} onNavigate={setActiveSection} />
+      )}
       <MatchesOverview
         postings={homePostings}
         workflows={workflows}
@@ -755,6 +758,34 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         {sectionContent[activeSection]}
       </main>
     </div>
+  );
+}
+
+function GettingStarted({ aiConnected, onNavigate }: { aiConnected?: boolean; onNavigate: (section: DashboardSection) => void }) {
+  return (
+    <section className="onboarding-card" aria-label="Getting started">
+      <div>
+        <p className="eyebrow">Getting started</p>
+        <h2>Set up your first monitor</h2>
+        <p>Connect your planning account, describe the roles you want, and let Orchestrator keep checking while you are away.</p>
+      </div>
+      <ol>
+        <li className={aiConnected ? "complete" : ""}>
+          <span>{aiConnected ? "✓" : "1"}</span>
+          <div><strong>{aiConnected ? "ChatGPT connected" : "Connect ChatGPT"}</strong><small>{aiConnected ? "Ready to create plans." : "Required for natural-language planning."}</small></div>
+          {!aiConnected && <button className="link-button" type="button" onClick={() => onNavigate("commands")}>Connect</button>}
+        </li>
+        <li>
+          <span>2</span>
+          <div><strong>Create a monitor</strong><small>Choose companies, roles, locations, and schedule.</small></div>
+          <button className="link-button" type="button" onClick={() => onNavigate("commands")}>Create</button>
+        </li>
+        <li>
+          <span>3</span>
+          <div><strong>Review your matches</strong><small>New roles appear in Postings as checks complete.</small></div>
+        </li>
+      </ol>
+    </section>
   );
 }
 
