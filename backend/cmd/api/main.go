@@ -150,10 +150,11 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      handler,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:        cfg.Addr,
+		Handler:     handler,
+		ReadTimeout: 5 * time.Second,
+		// Leave time for the planner's 20-second request deadline and an error response.
+		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
