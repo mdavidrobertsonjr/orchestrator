@@ -866,6 +866,20 @@ td span {
   color: #9f1f18;
 }
 
+.message-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #49616a;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.message-summary svg {
+  color: #237a69;
+}
+
 .submit-form {
   display: grid;
   gap: 14px;

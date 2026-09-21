@@ -1336,6 +1336,7 @@ function JobsTable({
             <th>Name</th>
             <th>Type</th>
             <th>Status</th>
+            <th>Messages</th>
             <th>Attempts</th>
             <th>Updated</th>
             <th>Action</th>
@@ -1358,6 +1359,9 @@ function JobsTable({
               <td>{job.type}</td>
               <td>
                 <StatusPill status={job.status} />
+              </td>
+              <td>
+                <MessageSummary job={job} />
               </td>
               <td>
                 {job.attempts}/{job.max_attempts}
@@ -2051,6 +2055,43 @@ function JobDetail({ job, results }: { job: Job; results: Result[] }) {
 
 function StatusPill({ status }: { status: JobStatus }) {
   return <span className={`status-pill ${status}`}>{status}</span>;
+}
+
+function MessageSummary({ job }: { job: Job }) {
+  const config = notificationSummary(job);
+  if (!config) {
+    return <span className="muted">—</span>;
+  }
+
+  return (
+    <span className="message-summary" title={config.detail}>
+      <BellRing size={14} />
+      {config.label}
+    </span>
+  );
+}
+
+function notificationSummary(job: Job): { label: string; detail: string } | null {
+  const payload = job.payload ?? {};
+  const nested = payload.notifications && typeof payload.notifications === "object"
+    ? payload.notifications as Record<string, unknown>
+    : undefined;
+  const mode = String(nested?.mode ?? payload.notification_mode ?? "").trim().toLowerCase();
+  const recipients = Array.isArray(nested?.recipients)
+    ? nested.recipients.filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    : Array.isArray(payload.recipients)
+      ? payload.recipients.filter((value): value is string => typeof value === "string" && value.trim() !== "")
+      : [];
+
+  if (!mode && recipients.length === 0) {
+    return null;
+  }
+
+  const label = mode === "daily" || mode === "digest" ? "Daily digest"
+    : mode === "immediate" || mode === "email" ? "Email alert"
+      : mode ? mode.replace(/_/g, " ") : "Configured";
+  const recipientLabel = recipients.length === 1 ? recipients[0] : recipients.length > 1 ? `${recipients.length} recipients` : "account email";
+  return { label, detail: `${label} · ${recipientLabel}` };
 }
 
 function WorkerPill({ status }: { status: WorkerStatus }) {
