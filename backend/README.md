@@ -199,6 +199,14 @@ Run Postgres-backed integration checks from the repository root:
 make smoke-postgres
 ```
 
+For production releases, apply migrations explicitly and verify the services
+can start without changing the schema automatically:
+
+```bash
+make migrate-postgres
+make migration-gate
+```
+
 The integration suite covers startup migrations, SQL-backed pagination, notification delivery state, and scheduler advisory locking.
 
 ## Roadmap

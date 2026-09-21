@@ -100,8 +100,16 @@ Expose only ports `80` and `443` publicly. Keep Postgres private to the Docker n
 Pull or deploy the new code, then rebuild:
 
 ```bash
+make check-deploy
+make migrate-postgres
 docker compose --profile app up --build -d
 ```
+
+Run migrations as a release step before restarting the API and worker. Set
+`ORCH_AUTO_MIGRATE=false` in the deployment environment after the first
+successful migration; this makes an incomplete migration fail at startup
+instead of changing the production schema implicitly. The CI migration gate
+checks this same startup path against a real Postgres service.
 
 Workflows, postings, runs, results, notification deliveries, and audit events persist in Postgres. Startup migrations are recorded in `schema_migrations`. The scheduler resumes after restart and uses a Postgres advisory lock so only one API instance dispatches due workflows at a time.
 

@@ -7,6 +7,7 @@ services:
     environment:
       ORCH_ADDR: ":8080"
       ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@postgres:5432/orchestrator?sslmode=disable
+      ORCH_AUTO_MIGRATE: "${ORCH_AUTO_MIGRATE:-true}"
       ORCH_EMBEDDED_WORKERS: "false"
       ORCH_STATIC_DIR: /app/frontend/dist
       ORCH_AUTH_TOKEN: "${ORCH_AUTH_TOKEN:-}"
@@ -39,6 +40,7 @@ services:
     restart: unless-stopped
     environment:
       ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@postgres:5432/orchestrator?sslmode=disable
+      ORCH_AUTO_MIGRATE: "${ORCH_AUTO_MIGRATE:-true}"
       ORCH_WORKERS: "1"
       ORCH_WORKER_ID: compose-worker
       ORCH_DEFAULT_RECIPIENTS: "${ORCH_DEFAULT_RECIPIENTS:-}"

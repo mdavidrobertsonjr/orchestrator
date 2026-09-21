@@ -92,6 +92,8 @@ make dev-postgres         # API and dashboard with local Postgres
 make website-postgres     # Built dashboard served by API with Postgres
 make dev-distributed      # API, dashboard, Postgres, and standalone worker
 make smoke-postgres       # Postgres integration checks
+make migrate-postgres     # Apply Postgres migrations explicitly
+make migration-gate       # Verify startup with automatic migrations disabled
 make smoke-distributed    # Distributed API/worker smoke test
 make check-deploy         # Validate deployment environment settings
 make compose-app          # Containerized API, worker, and Postgres

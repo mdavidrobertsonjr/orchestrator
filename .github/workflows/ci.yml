@@ -44,6 +44,15 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      - name: Apply migrations explicitly
+        run: go run ./cmd/migrate
+        env:
+          ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+      - name: Verify production migration gate
+        working-directory: .
+        run: bash scripts/migration_gate.sh
+        env:
+          ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
       - run: go test -tags=integration ./internal/integration
         env:
           ORCH_DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
