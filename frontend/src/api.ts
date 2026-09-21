@@ -61,6 +61,22 @@ export type JobLog = {
   message: string;
 };
 
+export type NotificationDelivery = {
+  id: string;
+  job_id: string;
+  workflow_id: string;
+  kind: string;
+  provider: string;
+  status: "pending" | "sending" | "succeeded" | "failed" | string;
+  recipients?: string[];
+  subject: string;
+  error?: string;
+  attempts: number;
+  last_attempt_at?: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type WorkerStatus = "idle" | "running" | "stopped";
 
 export type Worker = {
@@ -298,6 +314,11 @@ export async function fetchWorkflowRuns(): Promise<WorkflowRun[]> {
 export async function fetchResults(): Promise<Result[]> {
   const response = await request<{ results: Result[] | null }>("/v1/results");
   return response.results ?? [];
+}
+
+export async function fetchNotifications(): Promise<NotificationDelivery[]> {
+  const response = await request<{ notifications: NotificationDelivery[] | null }>("/v1/notifications");
+  return response.notifications ?? [];
 }
 
 export function fetchQueue(): Promise<QueueStatus> {

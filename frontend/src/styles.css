@@ -880,6 +880,19 @@ td span {
   color: #237a69;
 }
 
+.message-summary.message-succeeded {
+  color: #116c49;
+}
+
+.message-summary.message-failed {
+  color: #9f1f18;
+}
+
+.message-summary.message-sending,
+.message-summary.message-pending {
+  color: #7a5200;
+}
+
 .submit-form {
   display: grid;
   gap: 14px;

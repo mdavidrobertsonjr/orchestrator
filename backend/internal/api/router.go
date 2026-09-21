@@ -114,6 +114,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/workflow-runs/{id}", server.handleGetWorkflowRun)
 	mux.HandleFunc("GET /v1/results", server.handleListResults)
 	mux.HandleFunc("GET /v1/results/{id}", server.handleGetResult)
+	mux.HandleFunc("GET /v1/notifications", server.handleListNotifications)
 	if config.Static != "" {
 		mux.Handle("GET /", staticHandler(config.Static))
 	}
@@ -1576,6 +1577,20 @@ func (s *Server) handleListResults(w http.ResponseWriter, r *http.Request) {
 		"results":    resultsPage,
 		"pagination": pagination,
 	})
+}
+
+func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifications == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"notifications": []*notifications.Delivery{}})
+		return
+	}
+	deliveries, err := s.notifications.List()
+	if err != nil {
+		s.logger.Error("failed to list notifications", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list notifications")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"notifications": deliveries})
 }
 
 type auditEvent struct {

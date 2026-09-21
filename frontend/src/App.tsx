@@ -31,6 +31,7 @@ import {
   fetchHealth,
   fetchJobs,
   fetchMetrics,
+  fetchNotifications,
   fetchPostings,
   fetchQueue,
   fetchResults,
@@ -40,6 +41,7 @@ import {
   getAuthToken,
   Job,
   JobStatus,
+  NotificationDelivery,
   OperationalAlert,
   Posting,
   PostingFilters,
@@ -227,6 +229,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
   const [postings, setPostings] = useState<Posting[]>([]);
   const [homePostings, setHomePostings] = useState<Posting[]>([]);
   const [results, setResults] = useState<Result[]>([]);
+  const [notifications, setNotifications] = useState<NotificationDelivery[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -301,7 +304,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults, nextHomePostings] =
+      const [, nextJobs, nextWorkers, nextQueue, nextMetrics, nextPostings, nextWorkflows, nextRuns, nextResults, nextNotifications, nextHomePostings] =
         await Promise.all([
           fetchHealth(),
           fetchJobs(),
@@ -312,6 +315,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           fetchWorkflows(),
           fetchWorkflowRuns(),
           fetchResults(),
+          fetchNotifications(),
           fetchPostings({ minScore: 20, freshness: "current", applied: "not_applied", pageSize: 200 })
         ]);
       setJobs(nextJobs);
@@ -322,6 +326,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       setWorkflows(nextWorkflows);
       setWorkflowRuns(nextRuns);
       setResults(nextResults);
+      setNotifications(nextNotifications);
       setHomePostings(nextHomePostings);
       setApiOnline(true);
       setLastUpdated(new Date());
@@ -583,6 +588,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
             <JobsTable
               rows={jobRows.slice(0, 5)}
+              notifications={notifications}
               selectedJobID={selectedJob?.id}
               onSelect={setSelectedJobID}
               onCancel={(job) => void handleCancelJob(job)}
@@ -620,6 +626,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         <Panel subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
           <JobsTable
             rows={jobRows}
+            notifications={notifications}
             selectedJobID={selectedJob?.id}
             onSelect={setSelectedJobID}
             onCancel={(job) => void handleCancelJob(job)}
@@ -1269,6 +1276,7 @@ function SummaryCard({
 
 function JobsTable({
   rows,
+  notifications,
   selectedJobID,
   onSelect,
   onCancel,
@@ -1276,6 +1284,7 @@ function JobsTable({
   loading
 }: {
   rows: JobTableRow[];
+  notifications: NotificationDelivery[];
   selectedJobID?: string;
   onSelect: (id: string) => void;
   onCancel: (job: Job) => void;
@@ -1322,7 +1331,7 @@ function JobsTable({
                 <StatusPill status={job.status} />
               </td>
               <td>
-                <MessageSummary job={job} />
+                <MessageSummary job={job} delivery={latestNotification(job, notifications)} />
               </td>
               <td>
                 {job.attempts}/{job.max_attempts}
@@ -2018,18 +2027,35 @@ function StatusPill({ status }: { status: JobStatus }) {
   return <span className={`status-pill ${status}`}>{status}</span>;
 }
 
-function MessageSummary({ job }: { job: Job }) {
+function MessageSummary({ job, delivery }: { job: Job; delivery?: NotificationDelivery }) {
   const config = notificationSummary(job);
-  if (!config) {
+  if (!config && !delivery) {
     return <span className="muted">—</span>;
   }
 
+  if (delivery) {
+    const statusLabel = delivery.status === "succeeded" ? "Sent" : delivery.status === "failed" ? "Failed" : delivery.status === "sending" ? "Sending" : "Queued";
+    const recipient = delivery.recipients?.length === 1 ? delivery.recipients[0] : delivery.recipients?.length ? `${delivery.recipients.length} recipients` : "account email";
+    return (
+      <span className={`message-summary message-${delivery.status}`} title={`${delivery.subject || "Notification"} · ${recipient}`}>
+        <BellRing size={14} />
+        {statusLabel}
+      </span>
+    );
+  }
+
   return (
-    <span className="message-summary" title={config.detail}>
+    <span className="message-summary" title={config?.detail}>
       <BellRing size={14} />
-      {config.label}
+      {config?.label}
     </span>
   );
+}
+
+function latestNotification(job: Job, deliveries: NotificationDelivery[]): NotificationDelivery | undefined {
+  return deliveries
+    .filter((delivery) => delivery.job_id === job.id)
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
 }
 
 function notificationSummary(job: Job): { label: string; detail: string } | null {
