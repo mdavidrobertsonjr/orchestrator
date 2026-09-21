@@ -17,6 +17,7 @@ type Store interface {
 	Upsert(params UpsertPostingParams) (*Posting, bool, error)
 	Get(id string) (*Posting, error)
 	SetApplied(id string, applied bool) (*Posting, error)
+	Delete(id string) error
 	List() ([]*Posting, error)
 }
 
@@ -121,12 +122,28 @@ func (s *MemoryStore) SetApplied(id string, applied bool) (*Posting, error) {
 	return clonePosting(posting), nil
 }
 
+func (s *MemoryStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	posting, ok := s.postings[id]
+	if !ok || posting.DismissedAt != nil {
+		return ErrNotFound
+	}
+	now := time.Now().UTC()
+	posting.DismissedAt = &now
+	return nil
+}
+
 func (s *MemoryStore) List() ([]*Posting, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	out := make([]*Posting, 0, len(s.postings))
 	for _, posting := range s.postings {
+		if posting.DismissedAt != nil {
+			continue
+		}
 		out = append(out, clonePosting(posting))
 	}
 
@@ -194,6 +211,7 @@ func clonePosting(posting *Posting) *Posting {
 	clone.PostedAt = cloneTime(posting.PostedAt)
 	clone.MatchedAt = cloneTime(posting.MatchedAt)
 	clone.AppliedAt = cloneTime(posting.AppliedAt)
+	clone.DismissedAt = cloneTime(posting.DismissedAt)
 	clone.MatchReasons = append([]string(nil), posting.MatchReasons...)
 	clone.Metadata = cloneMapString(posting.Metadata)
 	return &clone

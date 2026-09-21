@@ -102,6 +102,7 @@ func NewRouter(config Config) http.Handler {
 	mux.HandleFunc("GET /v1/postings", server.handleListPostings)
 	mux.HandleFunc("GET /v1/postings/{id}", server.handleGetPosting)
 	mux.HandleFunc("PATCH /v1/postings/{id}", server.handleUpdatePosting)
+	mux.HandleFunc("DELETE /v1/postings/{id}", server.handleDeletePosting)
 	mux.HandleFunc("GET /v1/workflows", server.handleListWorkflows)
 	mux.HandleFunc("POST /v1/workflows", server.handleCreateWorkflow)
 	mux.HandleFunc("POST /v1/workflows/natural", server.handleCreateNaturalWorkflow)
@@ -1021,6 +1022,23 @@ func (s *Server) handleUpdatePosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, posting)
+}
+
+func (s *Server) handleDeletePosting(w http.ResponseWriter, r *http.Request) {
+	if s.postings == nil {
+		writeError(w, http.StatusNotFound, "posting not found")
+		return
+	}
+	if err := s.postings.Delete(r.PathValue("id")); err != nil {
+		if errors.Is(err, postings.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "posting not found")
+			return
+		}
+		s.logger.Error("failed to delete posting", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete posting")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {

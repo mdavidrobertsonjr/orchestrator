@@ -72,6 +72,13 @@ CREATE INDEX IF NOT EXISTS postings_source_idx ON postings (source);
 ALTER TABLE postings ADD COLUMN IF NOT EXISTS applied_at timestamptz;
 CREATE INDEX IF NOT EXISTS postings_applied_at_idx ON postings (applied_at DESC);
 `,
+	}, {
+		Version: 3,
+		Name:    "track_dismissed_postings",
+		SQL: `
+ALTER TABLE postings ADD COLUMN IF NOT EXISTS dismissed_at timestamptz;
+CREATE INDEX IF NOT EXISTS postings_dismissed_at_idx ON postings (dismissed_at);
+`,
 	}})
 }
 
@@ -115,7 +122,7 @@ SET company = $2, title = $3, url = $4, location = $5, source = $6, source_id = 
 	match_reasons = $12, metadata = $13
 WHERE id = $1
 RETURNING id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 `, existingID, params.Company, params.Title, params.URL, params.Location, params.Source, params.SourceID,
 			params.PostedAt, now, params.MatchedAt, params.MatchScore, matchReasons, metadata))
 		if err != nil {
@@ -136,7 +143,7 @@ INSERT INTO postings (
 	first_seen_at, last_seen_at, matched_at, match_score, match_reasons, metadata
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14)
 RETURNING id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 `, newID(), params.Company, params.Title, params.URL, params.Location, params.Source, params.SourceID,
 		dedupeKey, params.PostedAt, now, params.MatchedAt, params.MatchScore, matchReasons, metadata))
 	if err != nil {
@@ -154,7 +161,7 @@ func (s *PostgresStore) Get(id string) (*Posting, error) {
 
 	posting, err := scanPosting(s.db.QueryRowContext(ctx, `
 SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 FROM postings
 WHERE id = $1
 `, id))
@@ -178,12 +185,33 @@ func (s *PostgresStore) SetApplied(id string, applied bool) (*Posting, error) {
 	posting, err := scanPosting(s.db.QueryRowContext(ctx, `
 UPDATE postings SET applied_at = $2 WHERE id = $1
 RETURNING id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 `, id, appliedAt))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return posting, err
+}
+
+func (s *PostgresStore) Delete(id string) error {
+	ctx, cancel := s.context()
+	defer cancel()
+
+	result, err := s.db.ExecContext(ctx, `
+UPDATE postings SET dismissed_at = now()
+WHERE id = $1 AND dismissed_at IS NULL
+`, id)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *PostgresStore) List() ([]*Posting, error) {
@@ -192,8 +220,9 @@ func (s *PostgresStore) List() ([]*Posting, error) {
 
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 FROM postings
+WHERE dismissed_at IS NULL
 ORDER BY first_seen_at DESC
 `)
 	if err != nil {
@@ -224,7 +253,7 @@ func (s *PostgresStore) ListPage(params ListParams) ([]*Posting, int, error) {
 
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, company, title, url, location, source, source_id, dedupe_key, posted_at,
-	first_seen_at, last_seen_at, matched_at, applied_at, match_score, match_reasons, metadata
+	first_seen_at, last_seen_at, matched_at, applied_at, dismissed_at, match_score, match_reasons, metadata
 FROM postings
 WHERE `+where+`
 ORDER BY match_score DESC, first_seen_at DESC
@@ -257,7 +286,7 @@ WHERE `+countWhere, countArgs...).Scan(&total); err != nil {
 }
 
 func postingsListWhere(params ListParams) (string, []any) {
-	var clauses []string
+	clauses := []string{"dismissed_at IS NULL"}
 	var args []any
 	addArg := func(value any) string {
 		args = append(args, value)
@@ -313,9 +342,6 @@ func postingsListWhere(params ListParams) (string, []any) {
 			clauses = append(clauses, "("+strings.Join(groupClauses, " OR ")+")")
 		}
 	}
-	if len(clauses) == 0 {
-		return "true", args
-	}
 	return strings.Join(clauses, " AND "), args
 }
 
@@ -332,6 +358,7 @@ func scanPosting(scanner postingScanner) (*Posting, error) {
 	var postedAt sql.NullTime
 	var matchedAt sql.NullTime
 	var appliedAt sql.NullTime
+	var dismissedAt sql.NullTime
 	var matchReasons []byte
 	var metadata []byte
 
@@ -349,6 +376,7 @@ func scanPosting(scanner postingScanner) (*Posting, error) {
 		&posting.LastSeenAt,
 		&matchedAt,
 		&appliedAt,
+		&dismissedAt,
 		&posting.MatchScore,
 		&matchReasons,
 		&metadata,
@@ -365,6 +393,9 @@ func scanPosting(scanner postingScanner) (*Posting, error) {
 	}
 	if appliedAt.Valid {
 		posting.AppliedAt = &appliedAt.Time
+	}
+	if dismissedAt.Valid {
+		posting.DismissedAt = &dismissedAt.Time
 	}
 	if len(matchReasons) > 0 {
 		if err := json.Unmarshal(matchReasons, &posting.MatchReasons); err != nil {

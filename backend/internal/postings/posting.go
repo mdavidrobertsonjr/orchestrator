@@ -16,6 +16,7 @@ type Posting struct {
 	LastSeenAt   time.Time         `json:"last_seen_at"`
 	MatchedAt    *time.Time        `json:"matched_at,omitempty"`
 	AppliedAt    *time.Time        `json:"applied_at,omitempty"`
+	DismissedAt  *time.Time        `json:"-"`
 	MatchScore   int               `json:"match_score,omitempty"`
 	MatchReasons []string          `json:"match_reasons,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`

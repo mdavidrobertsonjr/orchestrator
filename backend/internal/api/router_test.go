@@ -1033,6 +1033,17 @@ func TestGetAndListPostings(t *testing.T) {
 	if len(list.Postings) != 1 || list.Postings[0].AppliedAt == nil {
 		t.Fatalf("expected applied posting, got %#v", list.Postings)
 	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/v1/postings/"+posting.ID, nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("expected delete status %d, got %d with body %s", http.StatusNoContent, deleteRec.Code, deleteRec.Body.String())
+	}
+	remaining, err := postingStore.List()
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("expected dismissed posting to be hidden, postings=%#v err=%v", remaining, err)
+	}
 }
 
 func TestCreateWorkflow(t *testing.T) {

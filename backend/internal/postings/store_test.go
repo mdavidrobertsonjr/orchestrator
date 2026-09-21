@@ -83,6 +83,38 @@ func TestMemoryStoreSetAppliedPersistsAndClearsTimestamp(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreDeleteDismissesPostingPermanently(t *testing.T) {
+	store := NewMemoryStore()
+	params := UpsertPostingParams{
+		Company: "Ramp",
+		Title:   "Software Engineer",
+		URL:     "https://example.com/ramp",
+		Source:  "greenhouse",
+	}
+	posting, _, err := store.Upsert(params)
+	if err != nil {
+		t.Fatalf("upsert posting: %v", err)
+	}
+	if err := store.Delete(posting.ID); err != nil {
+		t.Fatalf("delete posting: %v", err)
+	}
+	list, err := store.List()
+	if err != nil || len(list) != 0 {
+		t.Fatalf("expected dismissed posting to be hidden, postings=%#v err=%v", list, err)
+	}
+	recreated, isNew, err := store.Upsert(params)
+	if err != nil || isNew || recreated.ID != posting.ID {
+		t.Fatalf("expected rediscovery to retain the dismissed record, posting=%#v isNew=%v err=%v", recreated, isNew, err)
+	}
+	list, err = store.List()
+	if err != nil || len(list) != 0 {
+		t.Fatalf("expected rediscovered posting to remain hidden, postings=%#v err=%v", list, err)
+	}
+	if err := store.Delete("missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing delete to return ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreUpsertDedupesExistingPosting(t *testing.T) {
 	store := NewMemoryStore()
 
