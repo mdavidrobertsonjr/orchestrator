@@ -48,12 +48,15 @@ const path = require('node:path');
     await page.waitForTimeout(6000); // Includes a subsequent polling refresh.
     assert(reads >= 6, 'Dashboard did not load every collection');
     assert.deepEqual(errors, [], 'Empty API collections crashed the dashboard');
-    for (const section of ['Jobs', 'Postings', 'Workflows', 'Results', 'Workers']) {
+    for (const section of ['Jobs', 'Postings', 'Workflows', 'Commands']) {
       // Match the sidebar by its visible label, including its descriptive subtitle.
       const button = page.locator('button.nav-item').filter({ hasText: section });
       assert.equal(await button.count(), 1, `Missing ${section} navigation`);
       await button.click();
     }
+    // Results and workers are intentionally consolidated into Jobs and Overview.
+    assert.equal(await page.locator('button.nav-item').filter({ hasText: 'Results' }).count(), 0);
+    assert.equal(await page.locator('button.nav-item').filter({ hasText: 'Workers' }).count(), 0);
     assert.deepEqual(errors, []);
     assert(await page.getByRole('button', { name: 'Sign out', exact: true }).isVisible());
     console.log('PASS: signed-in empty workspace remains visible across refreshes.');
