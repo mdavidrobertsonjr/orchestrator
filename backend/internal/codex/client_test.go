@@ -32,6 +32,7 @@ for line in sys.stdin:
  elif method=='account/logout': connected=False
  elif method=='thread/start':
   assert m['params']['ephemeral'] is True
+  assert m['params']['sandbox']=='read-only'
   result={'thread':{'id':'thread'}}
  elif method=='turn/start':
   p=m['params'];assert p['sandboxPolicy']['access']['type']=='restricted'

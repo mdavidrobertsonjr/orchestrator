@@ -318,7 +318,7 @@ func (c *Client) Generate(ctx context.Context, instructions, prompt string, sche
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	params := map[string]any{"cwd": c.work, "approvalPolicy": "never", "sandbox": "readOnly", "ephemeral": true, "baseInstructions": instructions + "\nReturn only the requested JSON. Do not call tools or inspect files.", "config": map[string]any{"web_search": "disabled"}}
+	params := map[string]any{"cwd": c.work, "approvalPolicy": "never", "sandbox": "read-only", "ephemeral": true, "baseInstructions": instructions + "\nReturn only the requested JSON. Do not call tools or inspect files.", "config": map[string]any{"web_search": "disabled"}}
 	if c.model != "" {
 		params["model"] = c.model
 	}
