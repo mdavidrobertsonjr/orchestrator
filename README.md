@@ -2,7 +2,7 @@
 
 A Go-based job orchestration platform with a React operations dashboard, worker execution, retries, durable Postgres state, scheduled workflows, and natural-language job planning. The flagship workflow monitors public job boards for targeted new-grad software engineering roles and sends tracked email alerts when useful matches appear.
 
-This repository runs locally or as an account-based website on your own server. No public instance is deployed by this repository; screenshots show a local or self-hosted backend. See [public website setup](docs/hosted-website.md) for Google and email/password accounts with saved workspaces.
+This repository runs locally, on your own server, or as the hosted pilot at [job-orchestrator.duckdns.org](https://job-orchestrator.duckdns.org). The hosted site supports Google and email/password accounts with separate saved workspaces. See [public website setup](docs/hosted-website.md) for the account, ChatGPT connection, deployment, and email-delivery details.
 
 ## Highlights
 
@@ -11,9 +11,9 @@ This repository runs locally or as an account-based website on your own server. 
 - Real product workflow for monitoring Greenhouse, Lever, Ashby, Workday, and custom job feeds.
 - Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
 - React operations dashboard for queue health, jobs, workflow runs, workers, postings, application tracking, results, logs, metrics, and alerts.
-- Natural-language job/workflow planning when an operator supplies their own `OPENAI_API_KEY`.
+- Natural-language job/workflow planning through a local `OPENAI_API_KEY` or each hosted user's connected ChatGPT/Codex account.
 - Idempotent natural-language scheduling that reuses an equivalent workflow instead of creating duplicates.
-- Tracked SMTP delivery with configurable recipients and persisted success/failure state.
+- Tracked SMTP delivery with configurable recipients and persisted success/failure state; hosted alerts and digests are delivered to each account's verified email address.
 - Automated backend tests, Postgres integration coverage, frontend type-checking, and production builds.
 
 ## Product Tour
@@ -33,7 +33,7 @@ Try commands such as `Monitor new-grad software engineering roles at OpenAI, Pal
 ## What It Does
 
 - Accepts immediate jobs and recurring workflow definitions.
-- Converts English requests into structured jobs or workflows when `OPENAI_API_KEY` is configured.
+- Converts English requests into structured jobs or workflows when a local `OPENAI_API_KEY` or hosted ChatGPT/Codex connection is configured.
 - Runs work through embedded or standalone workers with retries, leases, and dead-letter handling.
 - Persists jobs, logs, workflows, runs, postings, results, notifications, and audit events in Postgres.
 - Shows queue health, workers, logs, workflow runs, postings, results, metrics, and operational alerts in the dashboard.
@@ -128,6 +128,11 @@ OPENAI_API_KEY=sk-... make website
 
 The backend uses `ORCH_OPENAI_MODEL=gpt-5.4-nano` by default. Without `OPENAI_API_KEY`, structured job and workflow submission still works.
 
+The hosted website does not use a shared site-wide API key for planning. After signing
+in, each visitor connects their own ChatGPT/Codex account; that connection plans the
+request and its account limits apply. The website's scheduler and workers then run the
+resulting job on the hosting server.
+
 Email delivery:
 
 ```bash
@@ -141,6 +146,11 @@ make website
 ```
 
 If `ORCH_SMTP_HOST` is not set, email delivery is simulated for local development.
+
+Hosted deployments use `ORCH_AUTH_SMTP_*` for account verification and password
+recovery, and the same authenticated sender for monitor alerts and digests. The SMTP
+account is the sender identity; hosted notifications are addressed to the signed-in
+account's verified email and are restricted to that address.
 
 ## Job Monitoring
 
@@ -210,8 +220,14 @@ Backend-specific API notes are in [backend/README.md](backend/README.md). Fronte
 
 ## Public website accounts
 
-For a hosted website where visitors sign in with Google or email/password, connect their own
-ChatGPT account, and keep separate saved jobs, see
-[the hosted website guide](docs/hosted-website.md). Visitors only need a browser.
-This uses the separate `compose.hosted.yaml` deployment; the existing private
-API/dashboard commands remain available.
+The hosted pilot is available at [job-orchestrator.duckdns.org](https://job-orchestrator.duckdns.org).
+Visitors only need a browser: sign in with Google or email/password, connect their own
+ChatGPT account, and use natural language to create jobs or recurring workflows. Each
+account gets an isolated workspace; the server's scheduler and workers continue running
+when the browser is closed. Job monitor alerts and digests go to that account's verified
+email address.
+
+See [the hosted website guide](docs/hosted-website.md) for the complete visitor flow,
+SMTP requirements, security boundaries, and self-hosting instructions. The hosted site
+uses the separate `compose.hosted.yaml` deployment; the private token-based
+API/dashboard commands remain available for local and self-hosted use.
