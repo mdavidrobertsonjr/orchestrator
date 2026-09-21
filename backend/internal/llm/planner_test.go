@@ -2,9 +2,11 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -211,4 +213,35 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func TestConnectedPlannerPreservesFlexiblePayload(t *testing.T) {
+	planner := NewConnectedPlanner(func(ctx context.Context, instructions, prompt string, schema map[string]any) (string, error) {
+		if schema["additionalProperties"] != false || !strings.Contains(instructions, "plan_json") || !strings.Contains(instructions, "job_type") {
+			t.Fatal("missing strict envelope or planning schema")
+		}
+		encoded, _ := json.Marshal(map[string]string{"plan_json": `{"action":"workflow","workflow":{"name":"Monitor","job_type":"jobs.monitor.new_grad","interval_seconds":3600,"enabled":true,"payload":{"sources":[{"type":"ashby","company":"OpenAI","job_board_name":"OpenAI"}]},"metadata":{"custom_key":"retained"}}}`})
+		return string(encoded), nil
+	})
+	plan, err := planner.PlanCommand(t.Context(), "Monitor OpenAI hourly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Workflow.IntervalSeconds != 3600 || plan.Workflow.Metadata["custom_key"] != "retained" {
+		t.Fatalf("unexpected plan: %#v", plan)
+	}
+	source := plan.Workflow.Payload["sources"].([]any)[0].(map[string]any)
+	if source["job_board_name"] != "openai" {
+		t.Fatalf("payload normalization lost: %#v", source)
+	}
+}
+func TestConnectedPlannerRejectsMalformedEnvelope(t *testing.T) {
+	for _, output := range []string{`{}`, `{"plan_json":"not JSON"}`, `{"plan_json":"null"}`, `{"plan_json":"[]"}`} {
+		t.Run(output, func(t *testing.T) {
+			p := NewConnectedPlanner(func(context.Context, string, string, map[string]any) (string, error) { return output, nil })
+			if _, err := p.PlanCommand(t.Context(), "monitor roles"); err == nil {
+				t.Fatal("accepted invalid plan")
+			}
+		})
+	}
 }

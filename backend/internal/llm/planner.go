@@ -412,7 +412,33 @@ func NewConnectedPlanner(generate func(context.Context, string, string, map[stri
 
 func (p *OpenAIPlanner) responsesOutput(ctx context.Context, body responseRequest) (string, error) {
 	if p.generate != nil {
-		return p.generate(ctx, body.Input[0].Content, body.Input[1].Content, body.Text.Format.Schema)
+		// Codex enforces strict output schemas, which cannot represent our open
+		// metadata and job-specific payload maps. Carry the plan as JSON text in
+		// a strict envelope, then use the same parsing and normalization below.
+		planSchema, err := json.Marshal(body.Text.Format.Schema)
+		if err != nil {
+			return "", err
+		}
+		instructions := body.Input[0].Content + "\nReturn an object with one field, plan_json. Its string value must contain the complete JSON plan (without Markdown) following this schema: " + string(planSchema)
+		text, err := p.generate(ctx, instructions, body.Input[1].Content, map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required":   []string{"plan_json"},
+			"properties": map[string]any{"plan_json": map[string]any{"type": "string"}},
+		})
+		if err != nil {
+			return "", err
+		}
+		var envelope struct {
+			PlanJSON string `json:"plan_json"`
+		}
+		if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+			return "", fmt.Errorf("decode connected plan: %w", err)
+		}
+		planJSON := strings.TrimSpace(envelope.PlanJSON)
+		if !strings.HasPrefix(planJSON, "{") || !json.Valid([]byte(planJSON)) {
+			return "", errors.New("connected planner returned an invalid JSON plan")
+		}
+		return planJSON, nil
 	}
 	var encoded bytes.Buffer
 	if err := json.NewEncoder(&encoded).Encode(body); err != nil {

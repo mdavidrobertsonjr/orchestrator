@@ -64,6 +64,13 @@ func New(ctx context.Context, root, binary, model string) (*Client, error) {
 	config := `cli_auth_credentials_store = "file"
 web_search = "disabled"
 project_doc_max_bytes = 0
+default_permissions = "planner"
+[permissions.planner.filesystem]
+":root" = "deny"
+[permissions.planner.filesystem.":workspace_roots"]
+"." = "read"
+[permissions.planner.network]
+enabled = false
 [features]
 shell_tool = false
 multi_agent = false
@@ -200,7 +207,12 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		return errors.New("Codex connection ended; retry the request")
 	case m := <-ch:
 		if len(m.Error) > 0 && string(m.Error) != "null" {
-			return fmt.Errorf("Codex rejected %s", method)
+			var detail struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			}
+			_ = json.Unmarshal(m.Error, &detail)
+			return fmt.Errorf("Codex rejected %s (%d): %.1024s", method, detail.Code, detail.Message)
 		}
 		if result != nil {
 			return json.Unmarshal(m.Result, result)
@@ -318,7 +330,7 @@ func (c *Client) Generate(ctx context.Context, instructions, prompt string, sche
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
-	params := map[string]any{"cwd": c.work, "approvalPolicy": "never", "sandbox": "read-only", "ephemeral": true, "baseInstructions": instructions + "\nReturn only the requested JSON. Do not call tools or inspect files.", "config": map[string]any{"web_search": "disabled"}}
+	params := map[string]any{"cwd": c.work, "approvalPolicy": "never", "ephemeral": true, "baseInstructions": instructions + "\nReturn only the requested JSON. Do not call tools or inspect files.", "config": map[string]any{"web_search": "disabled"}}
 	if c.model != "" {
 		params["model"] = c.model
 	}
@@ -339,7 +351,7 @@ func (c *Client) Generate(ctx context.Context, instructions, prompt string, sche
 	done := c.done
 	c.mu.Unlock()
 	defer func() { c.mu.Lock(); c.events = nil; c.mu.Unlock() }()
-	turn := map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": prompt}}, "approvalPolicy": "never", "sandboxPolicy": map[string]any{"type": "readOnly", "access": map[string]any{"type": "restricted", "includePlatformDefaults": false, "readableRoots": []string{c.work}}}, "outputSchema": schema}
+	turn := map[string]any{"threadId": thread.Thread.ID, "input": []map[string]string{{"type": "text", "text": prompt}}, "approvalPolicy": "never", "outputSchema": schema}
 	if err = c.call(ctx, "turn/start", turn, nil); err != nil {
 		c.stop()
 		return "", err
@@ -356,7 +368,12 @@ func (c *Client) Generate(ctx context.Context, instructions, prompt string, sche
 			var p struct {
 				ThreadID string                      `json:"threadId"`
 				Item     struct{ Type, Text string } `json:"item"`
-				Turn     struct{ Status string }     `json:"turn"`
+				Turn     struct {
+					Status string `json:"status"`
+					Error  *struct {
+						Message string `json:"message"`
+					} `json:"error"`
+				} `json:"turn"`
 			}
 			if json.Unmarshal(event.Params, &p) != nil || p.ThreadID != thread.Thread.ID {
 				continue
@@ -365,6 +382,9 @@ func (c *Client) Generate(ctx context.Context, instructions, prompt string, sche
 				output = p.Item.Text
 			}
 			if event.Method == "turn/completed" {
+				if p.Turn.Error != nil {
+					return "", fmt.Errorf("Codex plan failed: %.1024s", p.Turn.Error.Message)
+				}
 				if p.Turn.Status != "completed" || output == "" {
 					return "", errors.New("Codex could not complete the plan; check your ChatGPT connection and usage limits")
 				}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"orchestrator/backend/internal/llm"
 )
 
 func TestConnectionAndStructuredPlan(t *testing.T) {
@@ -32,14 +34,18 @@ for line in sys.stdin:
  elif method=='account/logout': connected=False
  elif method=='thread/start':
   assert m['params']['ephemeral'] is True
-  assert m['params']['sandbox']=='read-only'
+  assert 'sandbox' not in m['params']
+  config=open(os.path.join(os.environ['CODEX_HOME'],'config.toml')).read()
+  assert 'default_permissions = "planner"' in config
+  assert '":root" = "deny"' in config
+  assert '[permissions.planner.filesystem.":workspace_roots"]' in config
+  assert '"." = "read"' in config
+  assert '[permissions.planner.network]\nenabled = false' in config
   result={'thread':{'id':'thread'}}
  elif method=='turn/start':
-  p=m['params'];assert p['sandboxPolicy']['access']['type']=='restricted'
-  assert p['sandboxPolicy']['access']['includePlatformDefaults'] is False
+  p=m['params'];assert 'sandboxPolicy' not in p
   assert p['approvalPolicy']=='never'
   assert p['outputSchema']['type']=='object'
-  assert os.environ['CODEX_HOME'] not in p['sandboxPolicy']['access']['readableRoots']
  if 'id' in m:
   print(json.dumps({'id':m['id'],'result':result}),flush=True)
  if method=='turn/start':
@@ -111,4 +117,32 @@ func TestRealCodexHandshake(t *testing.T) {
 	if !strings.Contains(string(data), "shell_tool = false") {
 		t.Fatal("missing tool restriction")
 	}
+}
+
+// This opt-in check uses an app-owned connected account and spends model usage,
+// but only generates a plan; it never queues jobs or persists a workflow.
+func TestRealConnectedCommandPlan(t *testing.T) {
+	root := os.Getenv("ORCH_TEST_CODEX_USER_ROOT")
+	if root == "" {
+		t.Skip("set ORCH_TEST_CODEX_USER_ROOT to an app-owned connected account directory")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	c, err := New(ctx, root, "codex", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	plan, err := llm.NewConnectedPlanner(c.Generate).PlanCommand(ctx, "Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Action != "workflow" || plan.Workflow.JobType != "jobs.monitor.new_grad" || plan.Workflow.IntervalSeconds != 3600 {
+		t.Fatalf("unexpected command plan: %#v", plan)
+	}
+	sources, ok := plan.Workflow.Payload["sources"].([]any)
+	if !ok || len(sources) != 4 {
+		t.Fatalf("expected four monitoring sources, got %#v", plan.Workflow.Payload["sources"])
+	}
+	t.Log("Generated hourly workflow plan with all four monitoring sources; no workflow created")
 }
