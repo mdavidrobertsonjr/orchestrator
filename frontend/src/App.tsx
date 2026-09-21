@@ -14,7 +14,6 @@ import {
   Pause,
   Play,
   RefreshCw,
-  Server,
   Send,
   Terminal,
   Trash2,
@@ -60,7 +59,7 @@ import {
 
 const defaultQueue: QueueStatus = { queued: 0, capacity: 0 };
 
-type DashboardSection = "overview" | "jobs" | "postings" | "workflows" | "results" | "workers" | "commands";
+type DashboardSection = "overview" | "jobs" | "postings" | "workflows" | "commands";
 
 type NavItem = {
   id: DashboardSection;
@@ -98,18 +97,6 @@ const navItems: NavItem[] = [
     label: "Workflows",
     description: "Schedules",
     icon: <Clock3 size={18} />
-  },
-  {
-    id: "results",
-    label: "Results",
-    description: "Outputs",
-    icon: <Terminal size={18} />
-  },
-  {
-    id: "workers",
-    label: "Workers",
-    description: "Executors",
-    icon: <Server size={18} />
   },
   {
     id: "commands",
@@ -587,6 +574,9 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
           <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
+        <Panel title="Workers" subtitle={`${workers.length} registered executors`}>
+          <WorkersTable workers={workers} loading={loading} />
+        </Panel>
       </section>
       <section className="overview-columns">
         <div className="overview-column">
@@ -672,35 +662,6 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           onSelectJob={setSelectedJobID}
         />
       </Panel>
-    ),
-    results: (
-      <section className="split-view">
-        <Panel subtitle={`${results.length} structured outputs`}>
-          <ResultsTable results={results} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
-        </Panel>
-        <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
-          <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
-        </Panel>
-      </section>
-    ),
-    workers: (
-      <section className="split-view">
-        <Panel subtitle={`${workers.length} registered nodes`}>
-          <WorkersTable workers={workers} loading={loading} />
-        </Panel>
-        <Panel title="Queue" subtitle="In-memory capacity">
-          <QueueMeter queue={queue} fill={queueFill} />
-        </Panel>
-        <Panel
-          title="Runtime Metrics"
-          subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
-        >
-          <RuntimeMetricsPanel metrics={metrics} loading={loading} />
-        </Panel>
-        <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
-          <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
-        </Panel>
-      </section>
     ),
     commands: (
       <section className="command-grid">
