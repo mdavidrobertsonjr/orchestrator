@@ -531,6 +531,39 @@ td span {
   margin-top: 5px;
 }
 
+.posting-actions {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.posting-remove-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #9aa6b2;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 5px;
+}
+
+.posting-remove-button:hover:not(:disabled) {
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.posting-remove-button:focus-visible {
+  outline: 2px solid #1769aa;
+  outline-offset: 1px;
+}
+
+.posting-remove-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
 .application-button {
   background: #fff;
   border: 1px solid #cbd5df;

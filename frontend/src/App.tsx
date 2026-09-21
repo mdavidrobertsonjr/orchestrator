@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Boxes,
@@ -25,6 +25,7 @@ import {
   clearAuthToken,
   createNaturalCommand,
   createWorkflow,
+  deletePosting,
   deleteWorkflow,
   eventStreamURL,
   fetchHealth,
@@ -246,6 +247,7 @@ export function App() {
   const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
   const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
   const [updatingPostingID, setUpdatingPostingID] = useState<string | null>(null);
+  const dismissedPostingIDs = useRef(new Set<string>());
   const [commandPrompt, setCommandPrompt] = useState(
     "Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour"
   );
@@ -324,7 +326,7 @@ export function App() {
       setWorkers(nextWorkers);
       setQueue(nextQueue);
       setMetrics(nextMetrics);
-      setPostings(sortPostings(nextPostings));
+      setPostings(sortPostings(nextPostings.filter((posting) => !dismissedPostingIDs.current.has(posting.id))));
       setWorkflows(nextWorkflows);
       setWorkflowRuns(nextRuns);
       setResults(nextResults);
@@ -386,6 +388,24 @@ export function App() {
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to update application status");
+    } finally {
+      setUpdatingPostingID(null);
+    }
+  }
+
+  async function handlePostingDelete(posting: Posting) {
+    if (!window.confirm(`Remove “${posting.title}” at ${posting.company}?`)) {
+      return;
+    }
+    setUpdatingPostingID(posting.id);
+    try {
+      await deletePosting(posting.id);
+      dismissedPostingIDs.current.add(posting.id);
+      setPostings((current) => current.filter((item) => item.id !== posting.id));
+      setError(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to remove posting");
     } finally {
       setUpdatingPostingID(null);
     }
@@ -603,6 +623,7 @@ export function App() {
           loading={loading}
           updatingID={updatingPostingID}
           onAppliedChange={(posting, applied) => void handlePostingApplied(posting, applied)}
+          onDelete={(posting) => void handlePostingDelete(posting)}
         />
       </Panel>
     ),
@@ -1516,12 +1537,14 @@ function PostingsTable({
   postings,
   loading,
   updatingID,
-  onAppliedChange
+  onAppliedChange,
+  onDelete
 }: {
   postings: Posting[];
   loading: boolean;
   updatingID: string | null;
   onAppliedChange: (posting: Posting, applied: boolean) => void;
+  onDelete: (posting: Posting) => void;
 }) {
   if (loading) {
     return <EmptyState label="Loading postings" />;
@@ -1594,15 +1617,27 @@ function PostingsTable({
                   <span title={posting.source_id || posting.id}>{formatPostingSource(posting.source)}</span>
                 </td>
                 <td className="posting-application">
-                  <button
-                    className={posting.applied_at ? "application-button applied" : "application-button"}
-                    type="button"
-                    disabled={updatingID === posting.id}
-                    aria-pressed={Boolean(posting.applied_at)}
-                    onClick={() => onAppliedChange(posting, !posting.applied_at)}
-                  >
-                    {posting.applied_at ? "Applied" : "Mark applied"}
-                  </button>
+                  <div className="posting-actions">
+                    <button
+                      className={posting.applied_at ? "application-button applied" : "application-button"}
+                      type="button"
+                      disabled={updatingID === posting.id}
+                      aria-pressed={Boolean(posting.applied_at)}
+                      onClick={() => onAppliedChange(posting, !posting.applied_at)}
+                    >
+                      {posting.applied_at ? "Applied" : "Mark applied"}
+                    </button>
+                    <button
+                      className="posting-remove-button"
+                      type="button"
+                      disabled={updatingID === posting.id}
+                      aria-label={`Remove ${posting.title} at ${posting.company}`}
+                      title="Remove posting"
+                      onClick={() => onDelete(posting)}
+                    >
+                      <XCircle size={16} />
+                    </button>
+                  </div>
                   {posting.applied_at && <small>{relativeTime(posting.applied_at)}</small>}
                 </td>
               </tr>

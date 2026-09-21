@@ -272,6 +272,12 @@ export function updatePostingApplied(id: string, applied: boolean): Promise<Post
   });
 }
 
+export function deletePosting(id: string): Promise<void> {
+  return request<void>(`/v1/postings/${id}`, {
+    method: "DELETE"
+  });
+}
+
 function appendQuery(params: URLSearchParams, key: string, value?: string): void {
   const trimmed = value?.trim();
   if (trimmed) {
