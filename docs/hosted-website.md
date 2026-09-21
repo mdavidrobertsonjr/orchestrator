@@ -146,8 +146,10 @@ build target. The frontend detects which server is running.
   expectations before a broad commercial launch.
 - AI produces structured plans for the app's existing job types. This does not
   add arbitrary coding-agent execution or automatic job applications. Some
-  existing demonstration job types still simulate work. Hosted SMTP delivery is
-  not enabled; saved monitor results are available in the dashboard.
+  existing demonstration job types still simulate work. Hosted monitor alerts and
+  digest reports use the configured account SMTP sender and go to each account's
+  verified email address. Explicit recipients are restricted to that address in
+  hosted mode; saved monitor results remain available in the dashboard.
 - The planner uses a clean credential directory, disables shell, plugins, apps,
   multi-agent and web-search tools, restricts filesystem reads to an empty
   workspace, and declines server-initiated tool/approval requests. No raw Codex
