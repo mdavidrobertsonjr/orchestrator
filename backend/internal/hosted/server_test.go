@@ -43,6 +43,23 @@ func TestHostedSessionBoundary(t *testing.T) {
 	a := &testAccounts{map[string]User{"alice-token": {ID: "alice"}, "bob-token": {ID: "bob"}}}
 	m := &testRuntimes{}
 	s := &Server{accounts: a, runtimes: m, google: GoogleAuth{Origin: "https://jobs.example"}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	security := httptest.NewRecorder()
+	s.ServeHTTP(security, httptest.NewRequest("GET", "/healthz", nil))
+	for header, want := range map[string]string{
+		"X-Content-Type-Options":       "nosniff",
+		"X-Frame-Options":              "DENY",
+		"Referrer-Policy":              "no-referrer",
+		"Permissions-Policy":           "camera=(), microphone=(), geolocation=(), payment=()",
+		"Cross-Origin-Opener-Policy":   "same-origin",
+		"Cross-Origin-Resource-Policy": "same-origin",
+	} {
+		if got := security.Header().Get(header); got != want {
+			t.Fatalf("security header %s = %q, want %q", header, got, want)
+		}
+	}
+	if got := security.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
+		t.Fatalf("HSTS = %q", got)
+	}
 	for _, path := range []string{"/v1/jobs", "/v1/events", "/v1/postings/job-id", "/v1/results", "/v1/workflows", "/metrics", "/auth/chatgpt"} {
 		r := httptest.NewRequest("GET", path+"?auth_token=alice-token", nil)
 		r.Header.Set("Authorization", "Bearer alice-token")
