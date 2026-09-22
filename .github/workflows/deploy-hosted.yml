@@ -51,7 +51,7 @@ jobs:
           cd "$DEPLOY_PATH"
           git fetch origin main
           git merge --ff-only origin/main
-          docker compose -f compose.hosted.yaml config --quiet
-          docker compose -f compose.hosted.yaml up -d --build
-          docker compose -f compose.hosted.yaml ps
+          sudo -n docker compose -f compose.hosted.yaml config --quiet
+          sudo -n docker compose -f compose.hosted.yaml up -d --build
+          sudo -n docker compose -f compose.hosted.yaml ps
           REMOTE
