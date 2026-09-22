@@ -67,6 +67,8 @@ func (t boundedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	response.Body = http.MaxBytesReader(nil, response.Body, 8<<20)
+	// Some public ATS boards return large but bounded JSON documents. Keep a
+	// hard memory limit while allowing the largest known Ashby boards through.
+	response.Body = http.MaxBytesReader(nil, response.Body, 16<<20)
 	return response, nil
 }
