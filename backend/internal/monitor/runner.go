@@ -190,13 +190,11 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		if sourceType == "" {
 			sourceType = "fake"
 		}
-		if sourceType == "url" || sourceType == "json" || sourceType == "feed" {
-			if identifier := smartRecruitersIdentifier(sourceConfig.URL); identifier != "" {
-				sourceType = "smartrecruiters"
-				sourceConfig.CompanyIdentifier = identifier
-			} else {
-				sourceType = "custom"
-			}
+		if inferredType, inferredConfig, ok := inferATSURL(sourceConfig); ok && (sourceType == "url" || sourceType == "json" || sourceType == "feed" || sourceType == "custom") {
+			sourceType = inferredType
+			sourceConfig = inferredConfig
+		} else if sourceType == "url" || sourceType == "json" || sourceType == "feed" {
+			sourceType = "custom"
 		}
 		source, ok := r.sources[sourceType]
 		if !ok {
@@ -309,6 +307,39 @@ func smartRecruitersIdentifier(rawURL string) string {
 		return ""
 	}
 	return parts[0]
+}
+
+func inferATSURL(config SourceConfig) (string, SourceConfig, bool) {
+	rawURL := firstNonEmpty(config.URL, config.APIURL)
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Hostname() == "" {
+		return "", config, false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", config, false
+	}
+	identifier := parts[0]
+	switch {
+	case strings.HasSuffix(host, "greenhouse.io") && (strings.HasPrefix(host, "boards.") || strings.HasPrefix(host, "job-boards.")):
+		config.BoardToken = firstNonEmpty(config.BoardToken, identifier)
+		return "greenhouse", config, true
+	case strings.HasSuffix(host, "lever.co") && strings.HasPrefix(host, "jobs."):
+		config.AccountName = firstNonEmpty(config.AccountName, identifier)
+		return "lever", config, true
+	case strings.HasSuffix(host, "ashbyhq.com") && (strings.HasPrefix(host, "jobs.") || strings.HasPrefix(host, "api.")):
+		config.JobBoardName = firstNonEmpty(config.JobBoardName, identifier)
+		return "ashby", config, true
+	case strings.Contains(host, "smartrecruiters.com"):
+		if smartID := smartRecruitersIdentifier(rawURL); smartID != "" {
+			config.CompanyIdentifier = firstNonEmpty(config.CompanyIdentifier, smartID)
+			return "smartrecruiters", config, true
+		}
+		return "", config, false
+	default:
+		return "", config, false
+	}
 }
 
 func (r *Runner) upsertPostings(items []matchedPosting) []upsertedPosting {

@@ -96,6 +96,27 @@ func TestNormalizeExternalURL(t *testing.T) {
 	}
 }
 
+func TestInferATSURL(t *testing.T) {
+	tests := []struct {
+		url, wantType, wantID string
+	}{
+		{"https://boards.greenhouse.io/nvidia", "greenhouse", "nvidia"},
+		{"https://jobs.lever.co/microsoft", "lever", "microsoft"},
+		{"https://jobs.ashbyhq.com/waymo", "ashby", "waymo"},
+		{"https://careers.smartrecruiters.com/Visa", "smartrecruiters", "Visa"},
+	}
+	for _, test := range tests {
+		gotType, got, ok := inferATSURL(SourceConfig{Type: "custom", URL: test.url})
+		if !ok || gotType != test.wantType {
+			t.Fatalf("infer %s: got %q, %#v, %v", test.url, gotType, got, ok)
+		}
+		id := firstNonEmpty(got.BoardToken, got.AccountName, got.JobBoardName, got.CompanyIdentifier)
+		if id != test.wantID {
+			t.Fatalf("infer %s identifier = %q, want %q", test.url, id, test.wantID)
+		}
+	}
+}
+
 func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	s.started <- struct{}{}
 	<-s.release
