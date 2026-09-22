@@ -1949,7 +1949,10 @@ function ResultsTable({
               <td>
                 <strong>{result.type}</strong>
                 <span>
-                  {isRecoveredSourceHealth(result, jobs) ? "Recovered after retry" : result.summary || result.id.slice(0, 12)}
+                  {isRecoveredSourceHealth(result, jobs)
+                    ? "Recovered after retry"
+                    : result.summary || result.id.slice(0, 12)}
+                  {sourceErrorCount(result) > 0 && ` · ${sourceErrorCount(result)} source warning${sourceErrorCount(result) === 1 ? "" : "s"}`}
                 </span>
               </td>
               <td>{result.workflow_id ? result.workflow_id.slice(0, 12) : "-"}</td>
@@ -2026,6 +2029,11 @@ function JobDetail({ job, results }: { job: Job; results: Result[] }) {
             <div className="result-line" key={result.id}>
               <strong>{result.type}</strong>
               <span>{result.summary || "No summary"}</span>
+              {sourceErrorCount(result) > 0 && (
+                <span className="result-meta">
+                  {sourceErrorCount(result)} source warning{sourceErrorCount(result) === 1 ? "" : "s"}
+                </span>
+              )}
               {hasAlertFlag(result) && (
                 <span className="result-meta">Alert {result.data?.alert_sent ? "sent" : "not sent"}</span>
               )}
@@ -2161,6 +2169,10 @@ function jobRowsSubtitle(rowCount: number, executionCount: number) {
 
 function hasAlertFlag(result: Result) {
   return typeof result.data?.alert_sent === "boolean";
+}
+
+function sourceErrorCount(result: Result) {
+  return Array.isArray(result.data?.source_errors) ? result.data.source_errors.length : 0;
 }
 
 function formatAlertName(name: string) {

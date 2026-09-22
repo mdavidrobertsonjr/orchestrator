@@ -390,6 +390,13 @@ func monitorAlertBody(job *jobs.Job, result *monitor.Result) string {
 		fmt.Fprintf(&body, "Apply: %s\n\n", posting.URL)
 	}
 	fmt.Fprintf(&body, "Run summary: scanned %d, matched %d, new %d, updated %d.\n", result.Scanned, result.Matched, result.Created, result.Updated)
+	if len(result.SourceErrors) > 0 {
+		body.WriteString("Source warnings:\n")
+		for _, sourceErr := range result.SourceErrors {
+			fmt.Fprintf(&body, "- %s\n", sourceErr)
+		}
+		body.WriteString("Some job boards could not be checked during this run.\n")
+	}
 	if job != nil {
 		fmt.Fprintf(&body, "Job: %s\n", job.ID)
 	}
