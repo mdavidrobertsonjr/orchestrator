@@ -95,7 +95,14 @@ function HostedApp({ providers }: { providers: { google: boolean; email_signup: 
       try {
         const next = await accountRequest<Connection>("/auth/chatgpt");
         if (active) setConnection(next);
-      } catch (err) { if (active) setError((err as Error).message); }
+      } catch (err) {
+        if (active) {
+          // Connection health is polled independently of account actions. Keep a
+          // transient app-server failure in the connection panel instead of
+          // showing a global error banner while the account is still signed in.
+          setConnection(previous => ({ ...previous, error: (err as Error).message }));
+        }
+      }
       if (active) timer = setTimeout(poll, 5000);
     };
     void poll();
