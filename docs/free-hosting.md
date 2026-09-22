@@ -108,6 +108,30 @@ docker compose -f compose.hosted.yaml up -d --build
 docker compose -f compose.hosted.yaml ps
 ```
 
+### Automatic deploys from GitHub
+
+The repository includes a production deployment workflow at
+`.github/workflows/deploy-hosted.yml`. It runs after pushes to `main` and
+rebuilds the hosted Compose stack on the Oracle VM over SSH. The workflow does
+not use the local/private Compose project.
+
+Create these GitHub Actions secrets in the `production` environment:
+
+| Secret | Value |
+| --- | --- |
+| `ORACLE_HOST` | Oracle VM public IP or hostname |
+| `ORACLE_USER` | SSH user, such as `ubuntu` |
+| `ORACLE_APP_DIR` | Absolute path of the repository on the VM |
+| `ORACLE_SSH_PRIVATE_KEY` | Private key authorized in the VM user's `~/.ssh/authorized_keys` |
+| `ORACLE_SSH_KNOWN_HOSTS` | Output of `ssh-keyscan -H <oracle-host>` |
+
+On the Oracle VM, clone this repository into `ORACLE_APP_DIR`, create the
+private hosted `.env` described above, and confirm the SSH user can run Docker
+without `sudo`. The first deployment can still be started manually; later
+pushes to `main` run the workflow automatically. The workflow uses
+`git merge --ff-only`, so local changes on the VM stop the deployment instead
+of being overwritten.
+
 Caddy obtains an HTTPS certificate after DNS and ports are ready. The website
 becomes available at `https://your-project.duckdns.org`. The Go server derives
 its public origin from `ORCH_DOMAIN` in this Compose deployment.

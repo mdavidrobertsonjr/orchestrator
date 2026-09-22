@@ -1,0 +1,57 @@
+name: Deploy hosted website
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: hosted-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ORACLE_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ORACLE_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY" || { echo "Missing ORACLE_SSH_PRIVATE_KEY" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing ORACLE_SSH_KNOWN_HOSTS" >&2; exit 1; }
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/oracle_deploy"
+          chmod 600 "$HOME/.ssh/oracle_deploy"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+
+      - name: Deploy on Oracle VM
+        env:
+          DEPLOY_HOST: ${{ secrets.ORACLE_HOST }}
+          DEPLOY_USER: ${{ secrets.ORACLE_USER }}
+          DEPLOY_PATH: ${{ secrets.ORACLE_APP_DIR }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo "Missing ORACLE_HOST" >&2; exit 1; }
+          test -n "$DEPLOY_USER" || { echo "Missing ORACLE_USER" >&2; exit 1; }
+          test -n "$DEPLOY_PATH" || { echo "Missing ORACLE_APP_DIR" >&2; exit 1; }
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "ORACLE_APP_DIR must be an absolute path" >&2; exit 1 ;;
+          esac
+          quoted_path=$(printf '%q' "$DEPLOY_PATH")
+          ssh -i "$HOME/.ssh/oracle_deploy" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "export DEPLOY_PATH=$quoted_path; bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          git fetch origin main
+          git merge --ff-only origin/main
+          docker compose -f compose.hosted.yaml config --quiet
+          docker compose -f compose.hosted.yaml up -d --build
+          docker compose -f compose.hosted.yaml ps
+          REMOTE
