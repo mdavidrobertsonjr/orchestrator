@@ -60,6 +60,15 @@ import {
 
 const defaultQueue: QueueStatus = { queued: 0, capacity: 0 };
 
+function safeExternalURL(raw: string): string {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : "#";
+  } catch {
+    return "#";
+  }
+}
+
 type DashboardSection = "overview" | "jobs" | "postings" | "workflows" | "commands";
 
 type NavItem = {
@@ -849,7 +858,7 @@ function MatchesOverview({ postings, workflows, jobs, loading, updatingID, onApp
     <div className="matches-list-heading"><div><h3>Roles to explore</h3><p>Current matches you haven’t marked as applied. Most recently found first.</p></div><button className="link-button" type="button" onClick={onViewPostings}>View all matches</button></div>
     {loading ? <EmptyState label="Loading your matches" /> : recent.length === 0 ? <div className="match-empty"><h3>{monitors.length === 0 ? "Start with the roles you want" : "No new roles to review yet"}</h3><p>{monitors.length === 0 ? "Tell us which companies, roles, and locations interest you. We’ll keep checking for matches." : enabled.length === 0 ? "Your monitors are paused. Enable one to start finding roles again." : "Your monitors will keep checking. You can review previous roles and adjust filters in Postings."}</p><button className="primary-button" type="button" onClick={() => onNavigate(monitors.length === 0 ? "commands" : "workflows")}>{monitors.length === 0 ? "Create your first monitor" : "Manage monitors"}</button></div> : <div className="match-cards">{recent.map((posting) => <article className="match-card" key={posting.id}>
       <div className="match-card-top"><span>{posting.company}</span><span className="score-badge" title="Relevance score from your monitor’s matching rules">Match {posting.match_score ?? 0}</span></div>
-      <h3><a href={posting.url} target="_blank" rel="noreferrer">{posting.title}<ExternalLink size={15} aria-hidden="true" /></a></h3>
+      <h3><a href={safeExternalURL(posting.url)} target="_blank" rel="noreferrer">{posting.title}<ExternalLink size={15} aria-hidden="true" /></a></h3>
       <p>{posting.location || "Location not specified"}</p>
       <div className="match-card-footer"><small title={new Date(posting.first_seen_at).toLocaleString()}>Found {relativeTime(posting.first_seen_at)}</small><button className="application-button" type="button" disabled={updatingID === posting.id} aria-label={`Mark ${posting.title} at ${posting.company} as applied`} onClick={() => onApplied(posting)}>{updatingID === posting.id ? "Saving…" : "Mark applied"}</button></div>
     </article>)}</div>}
@@ -1719,7 +1728,7 @@ function PostingsTable({
               <tr key={posting.id}>
                 <td>
                   <strong>
-                    <a className="posting-link" href={posting.url} target="_blank" rel="noreferrer">
+                    <a className="posting-link" href={safeExternalURL(posting.url)} target="_blank" rel="noreferrer">
                       {posting.title}
                       <ExternalLink size={13} />
                     </a>

@@ -3,6 +3,15 @@ import { App } from "./App";
 import { useHostedAccounts } from "./api";
 import "./hosted.css";
 
+function safeExternalURL(raw: string): string {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : "#";
+  } catch {
+    return "#";
+  }
+}
+
 type User = { id: string; email: string; name: string };
 type Connection = { connected: boolean; email?: string; plan?: string; error?: string; login?: { verificationUrl: string; userCode: string } };
 
@@ -129,7 +138,7 @@ function HostedApp({ providers }: { providers: { google: boolean; email_signup: 
             <div className="device-login">
               <p>Enter this code on OpenAI’s page:</p>
               <strong className="device-code">{connection.login.userCode}</strong>
-              <a className="primary-button" href={connection.login.verificationUrl} target="_blank" rel="noopener noreferrer">Open OpenAI sign-in</a>
+              <a className="primary-button" href={safeExternalURL(connection.login.verificationUrl)} target="_blank" rel="noopener noreferrer">Open OpenAI sign-in</a>
               <p role="status">Waiting for approval… You can keep this page open.</p>
               <button disabled={busy} onClick={() => void disconnect()}>Cancel connection</button>
             </div>
