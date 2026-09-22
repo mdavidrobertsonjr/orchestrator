@@ -159,6 +159,26 @@ func TestRunnerStoresNewMatchingPostings(t *testing.T) {
 	}
 }
 
+func TestRunnerLimitsCandidatesPerSource(t *testing.T) {
+	runner := NewRunner(postings.NewMemoryStore(), nil)
+	result, err := runner.Run(t.Context(), map[string]any{
+		"sources": []map[string]any{{
+			"type": "fake", "name": "fixture", "limit": 1,
+			"postings": []map[string]any{
+				{"company": "Acme", "title": "One", "url": "https://example.com/1", "source_id": "1"},
+				{"company": "Acme", "title": "Two", "url": "https://example.com/2", "source_id": "2"},
+			},
+		}},
+		"min_score": float64(1),
+	}, nil)
+	if err != nil {
+		t.Fatalf("run monitor: %v", err)
+	}
+	if result.Scanned != 1 || result.Created != 1 {
+		t.Fatalf("expected one limited candidate, got %#v", result)
+	}
+}
+
 func TestRunnerDedupesRepeatedMatches(t *testing.T) {
 	store := postings.NewMemoryStore()
 	runner := NewRunner(store, nil)

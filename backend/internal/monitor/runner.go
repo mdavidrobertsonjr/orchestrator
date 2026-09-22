@@ -18,6 +18,8 @@ import (
 
 const NewGradJobType = "jobs.monitor.new_grad"
 
+const defaultSourceLimit = 500
+
 type Runner struct {
 	store       postings.Store
 	sources     map[string]Source
@@ -183,9 +185,14 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 			continue
 		}
 		successfulSources++
-		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(fetchedSource.candidates)))
+		candidates := fetchedSource.candidates
+		if sourceConfig.Limit > 0 && len(candidates) > sourceConfig.Limit {
+			log(logf, fmt.Sprintf("monitor source %q limited from %d to %d postings", sourceName(sourceConfig), len(candidates), sourceConfig.Limit))
+			candidates = candidates[:sourceConfig.Limit]
+		}
+		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(candidates)))
 
-		for _, candidate := range fetchedSource.candidates {
+		for _, candidate := range candidates {
 			result.Scanned++
 			score, reasons := scoreCandidate(candidate, payload)
 			if score < payload.MinScore {
@@ -277,6 +284,11 @@ func parsePayload(raw map[string]any) (Payload, error) {
 	var payload Payload
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return Payload{}, err
+	}
+	for index := range payload.Sources {
+		if payload.Sources[index].Limit <= 0 {
+			payload.Sources[index].Limit = defaultSourceLimit
+		}
 	}
 	return payload, nil
 }
