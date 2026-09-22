@@ -120,6 +120,10 @@ const path = require('node:path');
     await page.route('**/v1/jobs', r => r.fulfill({ json: { jobs: [successfulCheck, failedCheck] } }));
     const monitor = { id: 'active-monitor', name: 'Hourly monitor', job_type: 'jobs.monitor.new_grad', enabled: true, interval_seconds: 3600, next_run_at: timestamp(3600000), last_job_id: 'successful-check', created_at: timestamp(-86400000), updated_at: timestamp(0), max_attempts: 2 };
     await page.route('**/v1/workflows', r => r.fulfill({ json: { workflows: [monitor, { ...monitor, id: 'paused-monitor', name: 'Paused monitor', enabled: false, next_run_at: timestamp(-3600000), last_job_id: 'failed-check' }] } }));
+    await page.route('**/v1/workflow-runs', r => r.fulfill({ json: { runs: [
+      { id: 'active-run', workflow_id: 'active-monitor', job_id: 'successful-check', status: 'succeeded', trigger: 'manual', created_at: timestamp(-300000), updated_at: timestamp(-300000) },
+      { id: 'paused-run', workflow_id: 'paused-monitor', job_id: 'failed-check', status: 'failed', trigger: 'manual', created_at: timestamp(-300000), updated_at: timestamp(-300000) }
+    ] } }));
     await page.reload();
     await page.locator('.match-card').first().waitFor();
     assert.equal(await page.locator('.match-card h3').first().innerText(), 'New Grad Software Engineer', 'Newest match should be first, regardless of score');
