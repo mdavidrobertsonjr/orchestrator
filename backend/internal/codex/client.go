@@ -103,7 +103,8 @@ func (c *Client) start(ctx context.Context) error {
 	cmd := exec.CommandContext(c.lifetime, c.binary, "app-server", "--listen", "stdio://")
 	cmd.Dir = c.work
 	// Explicit allowlist: no website secrets, API keys, host HOME or host Codex auth.
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Dir(c.home), "CODEX_HOME=" + c.home, "TMPDIR=" + c.work}
+	// Keep executable lookup independent of the parent process environment.
+	cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Dir(c.home), "CODEX_HOME=" + c.home, "TMPDIR=" + c.work}
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return err
