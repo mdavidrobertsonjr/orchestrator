@@ -20,6 +20,8 @@ const NewGradJobType = "jobs.monitor.new_grad"
 
 const defaultSourceLimit = 500
 
+const postingWriteConcurrency = 8
+
 type Runner struct {
 	store       postings.Store
 	sources     map[string]Source
@@ -100,6 +102,18 @@ type sourceFetchResult struct {
 	sourceType string
 	candidates []Candidate
 	err        error
+}
+
+type matchedPosting struct {
+	params postings.UpsertPostingParams
+	title  string
+}
+
+type upsertedPosting struct {
+	posting *postings.Posting
+	isNew   bool
+	err     error
+	title   string
 }
 
 func NewRunner(store postings.Store, sources map[string]Source) *Runner {
@@ -192,6 +206,7 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		}
 		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(candidates)))
 
+		matched := make([]matchedPosting, 0, len(candidates))
 		for _, candidate := range candidates {
 			result.Scanned++
 			score, reasons := scoreCandidate(candidate, payload)
@@ -214,19 +229,22 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 				Metadata:     candidate.Metadata,
 			}
 
-			posting, isNew, err := r.store.Upsert(params)
-			if err != nil {
-				return nil, fmt.Errorf("store posting %q: %w", candidate.Title, err)
-			}
+			matched = append(matched, matchedPosting{params: params, title: candidate.Title})
+		}
 
+		upserted := r.upsertPostings(matched)
+		for _, item := range upserted {
+			if item.err != nil {
+				return nil, fmt.Errorf("store posting %q: %w", item.title, item.err)
+			}
 			result.Matched++
-			if isNew {
+			if item.isNew {
 				result.Created++
-				result.NewPostings = append(result.NewPostings, posting)
-				log(logf, fmt.Sprintf("new matching posting: %s - %s (%s)", posting.Company, posting.Title, posting.URL))
+				result.NewPostings = append(result.NewPostings, item.posting)
+				log(logf, fmt.Sprintf("new matching posting: %s - %s (%s)", item.posting.Company, item.posting.Title, item.posting.URL))
 			} else {
 				result.Updated++
-				log(logf, fmt.Sprintf("seen matching posting updated: %s - %s", posting.Company, posting.Title))
+				log(logf, fmt.Sprintf("seen matching posting updated: %s - %s", item.posting.Company, item.posting.Title))
 			}
 		}
 	}
@@ -239,6 +257,24 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 	}
 	log(logf, fmt.Sprintf("monitor completed: scanned=%d matched=%d new=%d updated=%d", result.Scanned, result.Matched, result.Created, result.Updated))
 	return result, nil
+}
+
+func (r *Runner) upsertPostings(items []matchedPosting) []upsertedPosting {
+	results := make([]upsertedPosting, len(items))
+	sem := make(chan struct{}, postingWriteConcurrency)
+	var wg sync.WaitGroup
+	for index, item := range items {
+		wg.Add(1)
+		go func(index int, item matchedPosting) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			posting, isNew, err := r.store.Upsert(item.params)
+			results[index] = upsertedPosting{posting: posting, isNew: isNew, err: err, title: item.title}
+		}(index, item)
+	}
+	wg.Wait()
+	return results
 }
 
 func sourceCacheKey(sourceType string, config SourceConfig) string {
