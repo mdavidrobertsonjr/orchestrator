@@ -258,7 +258,7 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 			params := postings.UpsertPostingParams{
 				Company:      firstNonEmpty(candidate.Company, sourceConfig.Company),
 				Title:        candidate.Title,
-				URL:          candidate.URL,
+				URL:          normalizeExternalURL(candidate.URL),
 				Location:     candidate.Location,
 				Source:       firstNonEmpty(candidate.Source, sourceName(sourceConfig)),
 				SourceID:     candidate.SourceID,
@@ -487,6 +487,18 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeExternalURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+	return parsed.String()
 }
 
 func log(logf func(string), message string) {

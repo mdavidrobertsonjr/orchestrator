@@ -87,6 +87,15 @@ func TestParsePayloadRejectsTooManySources(t *testing.T) {
 	}
 }
 
+func TestNormalizeExternalURL(t *testing.T) {
+	if got := normalizeExternalURL("javascript:alert(1)"); got != "" {
+		t.Fatalf("accepted unsafe URL %q", got)
+	}
+	if got := normalizeExternalURL("https://example.com/jobs?id=1"); got != "https://example.com/jobs?id=1" {
+		t.Fatalf("normalized safe URL to %q", got)
+	}
+}
+
 func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	s.started <- struct{}{}
 	<-s.release
