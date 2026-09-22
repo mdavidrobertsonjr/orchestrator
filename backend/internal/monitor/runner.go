@@ -44,23 +44,24 @@ type Source interface {
 }
 
 type SourceConfig struct {
-	Type         string      `json:"type"`
-	Name         string      `json:"name"`
-	Company      string      `json:"company"`
-	URL          string      `json:"url"`
-	APIURL       string      `json:"api_url"`
-	CareersURL   string      `json:"careers_url"`
-	BoardToken   string      `json:"board_token"`
-	AccountName  string      `json:"account_name"`
-	JobBoardName string      `json:"job_board_name"`
-	Tenant       string      `json:"tenant"`
-	Site         string      `json:"site"`
-	SearchText   string      `json:"search_text"`
-	Limit        int         `json:"limit"`
-	RateLimitMS  int         `json:"rate_limit_ms"`
-	MaxRetries   int         `json:"max_retries"`
-	BackoffMS    int         `json:"backoff_ms"`
-	Postings     []Candidate `json:"postings"`
+	Type              string      `json:"type"`
+	Name              string      `json:"name"`
+	Company           string      `json:"company"`
+	URL               string      `json:"url"`
+	APIURL            string      `json:"api_url"`
+	CareersURL        string      `json:"careers_url"`
+	BoardToken        string      `json:"board_token"`
+	CompanyIdentifier string      `json:"company_identifier"`
+	AccountName       string      `json:"account_name"`
+	JobBoardName      string      `json:"job_board_name"`
+	Tenant            string      `json:"tenant"`
+	Site              string      `json:"site"`
+	SearchText        string      `json:"search_text"`
+	Limit             int         `json:"limit"`
+	RateLimitMS       int         `json:"rate_limit_ms"`
+	MaxRetries        int         `json:"max_retries"`
+	BackoffMS         int         `json:"backoff_ms"`
+	Postings          []Candidate `json:"postings"`
 }
 
 type Candidate struct {
@@ -150,6 +151,9 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	}
 	if _, ok := sources["custom"]; !ok {
 		sources["custom"] = NewCustomSource(nil)
+	}
+	if _, ok := sources["smartrecruiters"]; !ok {
+		sources["smartrecruiters"] = NewSmartRecruitersSource(nil)
 	}
 	return &Runner{store: store, sources: sources, sourceCache: make(map[string]cachedSource)}
 }
@@ -1030,6 +1034,149 @@ func workdayPostingURL(base string, externalPath string) string {
 		return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(externalPath, "/")
 	}
 	return joined
+}
+
+type SmartRecruitersSource struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewSmartRecruitersSource(client *http.Client) *SmartRecruitersSource {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &SmartRecruitersSource{client: client, baseURL: "https://api.smartrecruiters.com"}
+}
+
+func (s *SmartRecruitersSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
+	identifier := strings.TrimSpace(config.CompanyIdentifier)
+	if identifier == "" {
+		identifier = strings.TrimSpace(config.Name)
+	}
+	if identifier == "" {
+		return nil, errors.New("smartrecruiters source requires company_identifier")
+	}
+	limit := config.Limit
+	if limit <= 0 || limit > defaultSourceLimit {
+		limit = defaultSourceLimit
+	}
+	endpoint, err := url.JoinPath(strings.TrimRight(s.baseURL, "/"), "v1", "companies", identifier, "postings")
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]Candidate, 0, limit)
+	for offset := 0; offset < limit; {
+		pageSize := minInt(100, limit-offset)
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, err
+		}
+		query := parsed.Query()
+		query.Set("limit", strconv.Itoa(pageSize))
+		query.Set("offset", strconv.Itoa(offset))
+		parsed.RawQuery = query.Encode()
+		resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+		}, s.client, config)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("smartrecruiters returned status %d", resp.StatusCode)
+		}
+		var body smartRecruitersResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, posting := range body.Content {
+			candidates = append(candidates, Candidate{
+				Company:  firstNonEmpty(config.Company, posting.Company.Name, config.Name, identifier),
+				Title:    posting.Name,
+				URL:      firstNonEmpty(posting.ApplyURL, posting.JobAdURL, posting.Ref),
+				Location: smartRecruitersLocation(posting.Location),
+				Source:   "smartrecruiters",
+				SourceID: firstNonEmpty(posting.UUID, posting.ID),
+				PostedAt: smartRecruitersPostedAt(posting.ReleasedDate),
+				Metadata: map[string]string{"company_identifier": identifier},
+			})
+			if len(candidates) >= limit {
+				return candidates[:limit], nil
+			}
+		}
+		if len(body.Content) == 0 {
+			break
+		}
+		offset += len(body.Content)
+		if body.TotalFound > 0 && offset >= body.TotalFound {
+			break
+		}
+	}
+	return candidates, nil
+}
+
+type smartRecruitersResponse struct {
+	Content    []smartRecruitersPosting `json:"content"`
+	TotalFound int                      `json:"totalFound"`
+}
+
+type smartRecruitersPosting struct {
+	ID           string                     `json:"id"`
+	UUID         string                     `json:"uuid"`
+	Name         string                     `json:"name"`
+	Ref          string                     `json:"ref"`
+	JobAdURL     string                     `json:"jobAdUrl"`
+	ApplyURL     string                     `json:"applyUrl"`
+	ReleasedDate string                     `json:"releasedDate"`
+	Location     smartRecruitersLocationObj `json:"location"`
+	Company      smartRecruitersCompany     `json:"company"`
+}
+
+type smartRecruitersLocationObj struct {
+	City    string `json:"city"`
+	Region  string `json:"region"`
+	Country string `json:"country"`
+	Remote  bool   `json:"remote"`
+}
+
+type smartRecruitersCompany struct {
+	Name string `json:"name"`
+}
+
+func smartRecruitersLocation(location smartRecruitersLocationObj) string {
+	parts := []string{location.City, location.Region, location.Country}
+	var nonEmpty []string
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			nonEmpty = append(nonEmpty, strings.TrimSpace(part))
+		}
+	}
+	if len(nonEmpty) > 0 {
+		return strings.Join(nonEmpty, ", ")
+	}
+	if location.Remote {
+		return "Remote"
+	}
+	return ""
+}
+
+func smartRecruitersPostedAt(raw string) *time.Time {
+	posted, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil {
+		return nil
+	}
+	posted = posted.UTC()
+	return &posted
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 type workdayJobsResponse struct {
