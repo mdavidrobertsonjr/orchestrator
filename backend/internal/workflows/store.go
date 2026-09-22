@@ -18,6 +18,7 @@ type Store interface {
 	ListDue(now time.Time) ([]*Workflow, error)
 	MarkDispatched(id string, jobID string, lastRunAt time.Time, nextRunAt time.Time) (*Workflow, error)
 	SetEnabled(id string, enabled bool) (*Workflow, error)
+	Update(id string, params UpdateWorkflowParams) (*Workflow, error)
 	Delete(id string) error
 }
 
@@ -145,6 +146,24 @@ func (s *MemoryStore) SetEnabled(id string, enabled bool) (*Workflow, error) {
 	}
 
 	workflow.Enabled = enabled
+	workflow.UpdatedAt = time.Now().UTC()
+	return cloneWorkflow(workflow), nil
+}
+
+func (s *MemoryStore) Update(id string, params UpdateWorkflowParams) (*Workflow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workflow, ok := s.workflows[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	workflow.Name = params.Name
+	workflow.JobType = params.JobType
+	workflow.Payload = cloneMapAny(params.Payload)
+	workflow.Metadata = cloneMapString(params.Metadata)
+	workflow.MaxAttempts = params.MaxAttempts
+	workflow.Enabled = params.Enabled
+	workflow.IntervalSeconds = params.IntervalSeconds
 	workflow.UpdatedAt = time.Now().UTC()
 	return cloneWorkflow(workflow), nil
 }

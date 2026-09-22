@@ -28,3 +28,13 @@ type CreateWorkflowParams struct {
 	IntervalSeconds int               `json:"interval_seconds"`
 	NextRunAt       *time.Time        `json:"next_run_at"`
 }
+
+type UpdateWorkflowParams struct {
+	Name            string
+	JobType         string
+	Payload         map[string]any
+	Metadata        map[string]string
+	MaxAttempts     int
+	Enabled         bool
+	IntervalSeconds int
+}

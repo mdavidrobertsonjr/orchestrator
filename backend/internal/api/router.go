@@ -147,7 +147,13 @@ type createWorkflowRequest struct {
 }
 
 type updateWorkflowRequest struct {
-	Enabled *bool `json:"enabled"`
+	Name            *string           `json:"name"`
+	JobType         *string           `json:"job_type"`
+	Payload         map[string]any    `json:"payload"`
+	Metadata        map[string]string `json:"metadata"`
+	MaxAttempts     *int              `json:"max_attempts"`
+	Enabled         *bool             `json:"enabled"`
+	IntervalSeconds *int              `json:"interval_seconds"`
 }
 
 type naturalCommandResponse struct {
@@ -1360,12 +1366,55 @@ func (s *Server) handleUpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if req.Enabled == nil {
-		writeError(w, http.StatusBadRequest, "enabled is required")
+	if req.Name == nil && req.JobType == nil && req.Payload == nil && req.Metadata == nil && req.MaxAttempts == nil && req.Enabled == nil && req.IntervalSeconds == nil {
+		writeError(w, http.StatusBadRequest, "workflow update is empty")
+		return
+	}
+	current, err := s.workflows.Get(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, workflows.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get workflow")
+		return
+	}
+	params := workflows.UpdateWorkflowParams{
+		Name:            current.Name,
+		JobType:         current.JobType,
+		Payload:         current.Payload,
+		Metadata:        current.Metadata,
+		MaxAttempts:     current.MaxAttempts,
+		Enabled:         current.Enabled,
+		IntervalSeconds: current.IntervalSeconds,
+	}
+	if req.Name != nil {
+		params.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.JobType != nil {
+		params.JobType = strings.TrimSpace(*req.JobType)
+	}
+	if req.Payload != nil {
+		params.Payload = req.Payload
+	}
+	if req.Metadata != nil {
+		params.Metadata = req.Metadata
+	}
+	if req.MaxAttempts != nil {
+		params.MaxAttempts = *req.MaxAttempts
+	}
+	if req.Enabled != nil {
+		params.Enabled = *req.Enabled
+	}
+	if req.IntervalSeconds != nil {
+		params.IntervalSeconds = *req.IntervalSeconds
+	}
+	if params.Name == "" || params.JobType == "" || params.MaxAttempts < 1 || params.IntervalSeconds < 1 {
+		writeError(w, http.StatusBadRequest, "invalid workflow update")
 		return
 	}
 
-	workflow, err := s.workflows.SetEnabled(r.PathValue("id"), *req.Enabled)
+	workflow, err := s.workflows.Update(r.PathValue("id"), params)
 	if err != nil {
 		if errors.Is(err, workflows.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "workflow not found")

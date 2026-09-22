@@ -192,6 +192,28 @@ RETURNING id, name, job_type, payload, metadata, max_attempts, enabled, interval
 	return workflow, nil
 }
 
+func (s *PostgresStore) Update(id string, params UpdateWorkflowParams) (*Workflow, error) {
+	now := time.Now().UTC()
+	ctx, cancel := s.context()
+	defer cancel()
+
+	workflow, err := scanWorkflow(s.db.QueryRowContext(ctx, `
+UPDATE workflows
+SET name = $2, job_type = $3, payload = $4, metadata = $5, max_attempts = $6,
+    enabled = $7, interval_seconds = $8, updated_at = $9
+WHERE id = $1
+RETURNING id, name, job_type, payload, metadata, max_attempts, enabled, interval_seconds,
+	next_run_at, last_run_at, last_job_id, created_at, updated_at
+`, id, params.Name, params.JobType, params.Payload, params.Metadata, params.MaxAttempts, params.Enabled, params.IntervalSeconds, now))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return workflow, nil
+}
+
 func (s *PostgresStore) Delete(id string) error {
 	ctx, cancel := s.context()
 	defer cancel()
