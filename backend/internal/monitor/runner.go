@@ -181,6 +181,14 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		if sourceType == "" {
 			sourceType = "fake"
 		}
+		if sourceType == "url" || sourceType == "json" || sourceType == "feed" {
+			if identifier := smartRecruitersIdentifier(sourceConfig.URL); identifier != "" {
+				sourceType = "smartrecruiters"
+				sourceConfig.CompanyIdentifier = identifier
+			} else {
+				sourceType = "custom"
+			}
+		}
 		source, ok := r.sources[sourceType]
 		if !ok {
 			return nil, fmt.Errorf("unsupported monitor source type %q", sourceType)
@@ -280,6 +288,18 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 	}
 	log(logf, fmt.Sprintf("monitor completed: scanned=%d matched=%d new=%d updated=%d", result.Scanned, result.Matched, result.Created, result.Updated))
 	return result, nil
+}
+
+func smartRecruitersIdentifier(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !strings.Contains(strings.ToLower(parsed.Hostname()), "smartrecruiters.com") {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" || strings.EqualFold(parts[0], "feed") {
+		return ""
+	}
+	return parts[0]
 }
 
 func (r *Runner) upsertPostings(items []matchedPosting) []upsertedPosting {

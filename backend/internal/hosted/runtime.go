@@ -174,7 +174,7 @@ func (m *Runtimes) Get(u User) (*Runtime, error) {
 	}
 	registry := workers.NewMemoryRegistry()
 	client := publicHTTPClient()
-	sources := map[string]monitor.Source{"greenhouse": monitor.NewGreenhouseSource(client), "lever": monitor.NewLeverSource(client), "ashby": monitor.NewAshbySource(client), "workday": monitor.NewWorkdaySource(client), "custom": monitor.NewCustomSource(client)}
+	sources := map[string]monitor.Source{"greenhouse": monitor.NewGreenhouseSource(client), "lever": monitor.NewLeverSource(client), "ashby": monitor.NewAshbySource(client), "workday": monitor.NewWorkdaySource(client), "custom": monitor.NewCustomSource(client), "smartrecruiters": monitor.NewSmartRecruitersSource(client)}
 	runner := monitor.NewRunner(ps, sources)
 	executor := worker.NewSimulatedExecutor(m.logger, runner, rs, m.emailSender)
 	executor.SetDefaultRecipients([]string{u.Email})

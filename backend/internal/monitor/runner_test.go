@@ -118,6 +118,15 @@ func TestRunnerKeepsSuccessfulSourcesWhenOneFails(t *testing.T) {
 	}
 }
 
+func TestSmartRecruitersURLSourceAlias(t *testing.T) {
+	if got := smartRecruitersIdentifier("https://careers.smartrecruiters.com/Visa"); got != "Visa" {
+		t.Fatalf("expected Visa identifier, got %q", got)
+	}
+	if got := smartRecruitersIdentifier("https://example.com/jobs.json"); got != "" {
+		t.Fatalf("expected non-SmartRecruiters URL to have no identifier, got %q", got)
+	}
+}
+
 func TestRunnerStoresNewMatchingPostings(t *testing.T) {
 	store := postings.NewMemoryStore()
 	runner := NewRunner(store, nil)
