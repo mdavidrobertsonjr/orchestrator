@@ -1,10 +1,38 @@
 package monitor
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"orchestrator/backend/internal/postings"
 )
+
+type failingSource struct{ err error }
+
+func (s failingSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
+	return nil, s.err
+}
+
+func TestRunnerKeepsSuccessfulSourcesWhenOneFails(t *testing.T) {
+	store := postings.NewMemoryStore()
+	runner := NewRunner(store, map[string]Source{"broken": failingSource{err: errors.New("upstream unavailable")}})
+	result, err := runner.Run(t.Context(), map[string]any{
+		"sources": []map[string]any{
+			{"type": "broken", "name": "Broken source"},
+			{"type": "fake", "name": "Working source", "postings": []map[string]any{{
+				"company": "Acme", "title": "Software Engineer", "url": "https://example.com/acme", "source_id": "acme-1",
+			}}},
+		},
+		"min_score": float64(1),
+	}, nil)
+	if err != nil {
+		t.Fatalf("expected partial source failure to succeed, got %v", err)
+	}
+	if len(result.SourceErrors) != 1 || result.Created != 1 {
+		t.Fatalf("unexpected partial result: %#v", result)
+	}
+}
 
 func TestRunnerStoresNewMatchingPostings(t *testing.T) {
 	store := postings.NewMemoryStore()

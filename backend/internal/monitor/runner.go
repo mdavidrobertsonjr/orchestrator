@@ -75,11 +75,12 @@ type Notifications struct {
 }
 
 type Result struct {
-	Scanned     int
-	Matched     int
-	Created     int
-	Updated     int
-	NewPostings []*postings.Posting
+	Scanned      int
+	Matched      int
+	Created      int
+	Updated      int
+	NewPostings  []*postings.Posting
+	SourceErrors []string
 }
 
 func NewRunner(store postings.Store, sources map[string]Source) *Runner {
@@ -124,6 +125,7 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 	}
 
 	result := &Result{}
+	successfulSources := 0
 	for _, sourceConfig := range payload.Sources {
 		sourceType := strings.TrimSpace(sourceConfig.Type)
 		if sourceType == "" {
@@ -140,8 +142,12 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 
 		candidates, err := source.Fetch(ctx, sourceConfig)
 		if err != nil {
-			return nil, fmt.Errorf("fetch %s source: %w", sourceType, err)
+			sourceErr := fmt.Sprintf("%s: %v", sourceName(sourceConfig), err)
+			result.SourceErrors = append(result.SourceErrors, sourceErr)
+			log(logf, "monitor source failed: "+sourceErr)
+			continue
 		}
+		successfulSources++
 		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(candidates)))
 
 		for _, candidate := range candidates {
@@ -183,8 +189,22 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		}
 	}
 
+	if successfulSources == 0 {
+		return nil, errors.Join(errorStrings(result.SourceErrors)...)
+	}
+	if len(result.SourceErrors) > 0 {
+		log(logf, fmt.Sprintf("monitor completed with %d source errors", len(result.SourceErrors)))
+	}
 	log(logf, fmt.Sprintf("monitor completed: scanned=%d matched=%d new=%d updated=%d", result.Scanned, result.Matched, result.Created, result.Updated))
 	return result, nil
+}
+
+func errorStrings(messages []string) []error {
+	errs := make([]error, 0, len(messages))
+	for _, message := range messages {
+		errs = append(errs, errors.New(message))
+	}
+	return errs
 }
 
 func parsePayload(raw map[string]any) (Payload, error) {
