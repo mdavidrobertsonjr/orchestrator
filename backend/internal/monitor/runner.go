@@ -21,6 +21,13 @@ const NewGradJobType = "jobs.monitor.new_grad"
 
 const defaultSourceLimit = 500
 
+const (
+	maxMonitorSources = 32
+	maxSourceRetries  = 5
+	maxBackoffMS      = 30_000
+	maxRateLimitMS    = 60_000
+)
+
 const postingWriteConcurrency = 8
 
 type Runner struct {
@@ -377,9 +384,32 @@ func parsePayload(raw map[string]any) (Payload, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return Payload{}, err
 	}
+	if len(payload.Sources) == 0 {
+		return Payload{}, errors.New("monitor payload requires at least one source")
+	}
+	if len(payload.Sources) > maxMonitorSources {
+		return Payload{}, fmt.Errorf("monitor payload supports at most %d sources", maxMonitorSources)
+	}
 	for index := range payload.Sources {
 		if payload.Sources[index].Limit <= 0 {
 			payload.Sources[index].Limit = defaultSourceLimit
+		} else if payload.Sources[index].Limit > defaultSourceLimit {
+			payload.Sources[index].Limit = defaultSourceLimit
+		}
+		if payload.Sources[index].MaxRetries < 0 {
+			payload.Sources[index].MaxRetries = 0
+		} else if payload.Sources[index].MaxRetries > maxSourceRetries {
+			payload.Sources[index].MaxRetries = maxSourceRetries
+		}
+		if payload.Sources[index].BackoffMS < 0 {
+			payload.Sources[index].BackoffMS = 0
+		} else if payload.Sources[index].BackoffMS > maxBackoffMS {
+			payload.Sources[index].BackoffMS = maxBackoffMS
+		}
+		if payload.Sources[index].RateLimitMS < 0 {
+			payload.Sources[index].RateLimitMS = 0
+		} else if payload.Sources[index].RateLimitMS > maxRateLimitMS {
+			payload.Sources[index].RateLimitMS = maxRateLimitMS
 		}
 	}
 	return payload, nil
@@ -464,10 +494,14 @@ func log(logf func(string), message string) {
 }
 
 func applySourceRateLimit(ctx context.Context, config SourceConfig) error {
-	if config.RateLimitMS <= 0 {
+	rateLimitMS := config.RateLimitMS
+	if rateLimitMS <= 0 {
 		return nil
 	}
-	timer := time.NewTimer(time.Duration(config.RateLimitMS) * time.Millisecond)
+	if rateLimitMS > maxRateLimitMS {
+		rateLimitMS = maxRateLimitMS
+	}
+	timer := time.NewTimer(time.Duration(rateLimitMS) * time.Millisecond)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -484,10 +518,14 @@ func doRequestWithRetries(ctx context.Context, newRequest func() (*http.Request,
 	maxRetries := config.MaxRetries
 	if maxRetries < 0 {
 		maxRetries = 0
+	} else if maxRetries > maxSourceRetries {
+		maxRetries = maxSourceRetries
 	}
 	backoff := time.Duration(config.BackoffMS) * time.Millisecond
 	if backoff <= 0 {
 		backoff = 250 * time.Millisecond
+	} else if backoff > maxBackoffMS*time.Millisecond {
+		backoff = maxBackoffMS * time.Millisecond
 	}
 
 	var lastErr error
@@ -942,8 +980,8 @@ func (s *WorkdaySource) Fetch(ctx context.Context, config SourceConfig) ([]Candi
 	}
 
 	limit := config.Limit
-	if limit <= 0 {
-		limit = 50
+	if limit <= 0 || limit > defaultSourceLimit {
+		limit = defaultSourceLimit
 	}
 	requestBody := map[string]any{
 		"appliedFacets": map[string]any{},

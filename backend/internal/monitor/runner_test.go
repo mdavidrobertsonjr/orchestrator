@@ -64,6 +64,29 @@ func TestRetryDelayHonorsRetryAfter(t *testing.T) {
 	}
 }
 
+func TestParsePayloadBoundsSourceControls(t *testing.T) {
+	payload, err := parsePayload(map[string]any{"sources": []map[string]any{{
+		"type": "fake", "limit": 999999, "max_retries": 999999, "backoff_ms": 999999, "rate_limit_ms": 999999,
+	}}})
+	if err != nil {
+		t.Fatalf("parse payload: %v", err)
+	}
+	source := payload.Sources[0]
+	if source.Limit != defaultSourceLimit || source.MaxRetries != maxSourceRetries || source.BackoffMS != maxBackoffMS || source.RateLimitMS != maxRateLimitMS {
+		t.Fatalf("source controls were not bounded: %#v", source)
+	}
+}
+
+func TestParsePayloadRejectsTooManySources(t *testing.T) {
+	sources := make([]map[string]any, maxMonitorSources+1)
+	for i := range sources {
+		sources[i] = map[string]any{"type": "fake"}
+	}
+	if _, err := parsePayload(map[string]any{"sources": sources}); err == nil {
+		t.Fatal("expected source count limit")
+	}
+}
+
 func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	s.started <- struct{}{}
 	<-s.release
