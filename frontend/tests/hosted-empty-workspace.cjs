@@ -48,13 +48,13 @@ const path = require('node:path');
     await page.waitForTimeout(6000); // Includes a subsequent polling refresh.
     assert(reads >= 6, 'Dashboard did not load every collection');
     assert.deepEqual(errors, [], 'Empty API collections crashed the dashboard');
-    for (const section of ['Jobs', 'Postings', 'Workflows', 'Commands']) {
+    for (const section of ['Postings', 'Monitors', 'Commands']) {
       // Match the sidebar by its visible label, including its descriptive subtitle.
       const button = page.locator('button.nav-item').filter({ hasText: section });
       assert.equal(await button.count(), 1, `Missing ${section} navigation`);
       await button.click();
     }
-    // Results and workers are intentionally consolidated into Jobs and Overview.
+    // Results and workers are intentionally consolidated into Monitors and Overview.
     assert.equal(await page.locator('button.nav-item').filter({ hasText: 'Results' }).count(), 0);
     assert.equal(await page.locator('button.nav-item').filter({ hasText: 'Workers' }).count(), 0);
     assert.deepEqual(errors, []);
@@ -84,12 +84,12 @@ const path = require('node:path');
     await page.setViewportSize({ width: 390, height: 844 });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Commands page overflows mobile viewport');
     await page.screenshot({ path: '/tmp/orchestrator-planning-mobile.png', fullPage: true });
-    await page.locator('button.nav-item').filter({ hasText: 'Jobs' }).click();
+    await page.locator('button.nav-item').filter({ hasText: 'Monitors' }).click();
     assert(await page.locator('.planning-status').isVisible(), 'Planning feedback disappeared on navigation');
     finishPlan();
     await page.locator('.success-note').waitFor();
     assert((await page.locator('.success-note').innerText()).includes('Hourly role monitor'));
-    assert.equal(await page.locator('h1').innerText(), 'Workflows');
+    assert.equal(await page.locator('h1').innerText(), 'Monitors');
     assert.equal(commandRequests, 1);
     await page.locator('.planning-status').waitFor({ state: 'detached' });
     await page.getByRole('button', { name: 'Dismiss confirmation' }).click();
