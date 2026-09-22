@@ -19,8 +19,17 @@ import (
 const NewGradJobType = "jobs.monitor.new_grad"
 
 type Runner struct {
-	store   postings.Store
-	sources map[string]Source
+	store       postings.Store
+	sources     map[string]Source
+	cacheMu     sync.Mutex
+	sourceCache map[string]cachedSource
+}
+
+const sourceCacheTTL = 2 * time.Minute
+
+type cachedSource struct {
+	fetchedAt  time.Time
+	candidates []Candidate
 }
 
 type Source interface {
@@ -113,7 +122,7 @@ func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	if _, ok := sources["custom"]; !ok {
 		sources["custom"] = NewCustomSource(nil)
 	}
-	return &Runner{store: store, sources: sources}
+	return &Runner{store: store, sources: sources, sourceCache: make(map[string]cachedSource)}
 }
 
 func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(string)) (*Result, error) {
@@ -147,11 +156,18 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		fetchWG.Add(1)
 		go func(index int, config SourceConfig, sourceType string, source Source) {
 			defer fetchWG.Done()
+			if candidates, ok := r.cachedSource(sourceType, config); ok {
+				fetched[index].candidates = candidates
+				return
+			}
 			if err := applySourceRateLimit(ctx, config); err != nil {
 				fetched[index].err = err
 				return
 			}
 			fetched[index].candidates, fetched[index].err = source.Fetch(ctx, config)
+			if fetched[index].err == nil {
+				r.cacheSource(sourceType, config, fetched[index].candidates)
+			}
 		}(index, sourceConfig, sourceType, source)
 	}
 	fetchWG.Wait()
@@ -216,6 +232,32 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 	}
 	log(logf, fmt.Sprintf("monitor completed: scanned=%d matched=%d new=%d updated=%d", result.Scanned, result.Matched, result.Created, result.Updated))
 	return result, nil
+}
+
+func sourceCacheKey(sourceType string, config SourceConfig) string {
+	data, _ := json.Marshal(config)
+	return sourceType + ":" + string(data)
+}
+
+func (r *Runner) cachedSource(sourceType string, config SourceConfig) ([]Candidate, bool) {
+	key := sourceCacheKey(sourceType, config)
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	entry, ok := r.sourceCache[key]
+	if !ok || time.Since(entry.fetchedAt) > sourceCacheTTL {
+		if ok {
+			delete(r.sourceCache, key)
+		}
+		return nil, false
+	}
+	return append([]Candidate(nil), entry.candidates...), true
+}
+
+func (r *Runner) cacheSource(sourceType string, config SourceConfig, candidates []Candidate) {
+	key := sourceCacheKey(sourceType, config)
+	r.cacheMu.Lock()
+	r.sourceCache[key] = cachedSource{fetchedAt: time.Now(), candidates: append([]Candidate(nil), candidates...)}
+	r.cacheMu.Unlock()
 }
 
 func errorStrings(messages []string) []error {

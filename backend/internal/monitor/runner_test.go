@@ -20,6 +20,28 @@ type gateSource struct {
 	release <-chan struct{}
 }
 
+type countingSource struct{ calls *int }
+
+func (s countingSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
+	*s.calls = *s.calls + 1
+	return nil, nil
+}
+
+func TestRunnerReusesRecentlySuccessfulSourceOnRetry(t *testing.T) {
+	calls := 0
+	runner := NewRunner(postings.NewMemoryStore(), map[string]Source{"counted": countingSource{calls: &calls}})
+	payload := map[string]any{"sources": []map[string]any{{"type": "counted", "name": "counted"}}}
+	if _, err := runner.Run(t.Context(), payload, nil); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if _, err := runner.Run(t.Context(), payload, nil); err != nil {
+		t.Fatalf("retry run: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected cached source to avoid refetch, got %d calls", calls)
+	}
+}
+
 func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	s.started <- struct{}{}
 	<-s.release
