@@ -240,7 +240,13 @@ export type CreateWorkflowInput = {
 };
 
 export type UpdateWorkflowInput = {
-  enabled: boolean;
+	name?: string;
+	job_type?: string;
+	payload?: Record<string, unknown>;
+	metadata?: Record<string, string>;
+	max_attempts?: number;
+	enabled?: boolean;
+	interval_seconds?: number;
 };
 
 export type NaturalCommandResponse = {

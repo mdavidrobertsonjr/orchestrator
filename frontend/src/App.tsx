@@ -229,6 +229,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
   const [queue, setQueue] = useState<QueueStatus>(defaultQueue);
   const [metrics, setMetrics] = useState<RuntimeMetrics | null>(null);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(initialWorkflowForm);
+  const [editingWorkflowID, setEditingWorkflowID] = useState<string | null>(null);
   const [postingFilters, setPostingFilters] = useState<PostingFilterState>(defaultPostingFilters);
   const [postingFilterForm, setPostingFilterForm] = useState<PostingFilterState>(defaultPostingFilters);
   const [updatingPostingID, setUpdatingPostingID] = useState<string | null>(null);
@@ -454,7 +455,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
 
     try {
       const payload = JSON.parse(workflowForm.payload) as Record<string, unknown>;
-      const created = await createWorkflow({
+      const input = {
         name: workflowForm.name.trim() || workflowForm.jobType.trim(),
         job_type: workflowForm.jobType.trim(),
         max_attempts: workflowForm.maxAttempts,
@@ -464,8 +465,15 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         metadata: {
           submitted_by: "dashboard"
         }
-      });
-      setCommandResult(`Monitor saved: ${created.name}. ${created.enabled ? "It continues running when this page is closed." : "It is paused until you enable it."}`);
+      };
+      if (editingWorkflowID) {
+        const updated = await updateWorkflow(editingWorkflowID, input);
+        setCommandResult(`Monitor updated: ${updated.name}.`);
+      } else {
+        const created = await createWorkflow(input);
+        setCommandResult(`Monitor saved: ${created.name}. ${created.enabled ? "It continues running when this page is closed." : "It is paused until you enable it."}`);
+      }
+      setEditingWorkflowID(null);
       setActiveSection("workflows");
       await refresh();
     } catch (err) {
@@ -473,6 +481,24 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
     } finally {
       setScheduling(false);
     }
+  }
+
+  function handleWorkflowEdit(workflow: Workflow) {
+    setWorkflowForm({
+      name: workflow.name,
+      jobType: workflow.job_type,
+      intervalSeconds: workflow.interval_seconds,
+      maxAttempts: workflow.max_attempts,
+      enabled: workflow.enabled,
+      payload: JSON.stringify(workflow.payload ?? {}, null, 2)
+    });
+    setEditingWorkflowID(workflow.id);
+    setActiveSection("commands");
+  }
+
+  function handleWorkflowEditCancel() {
+    setEditingWorkflowID(null);
+    setWorkflowForm(initialWorkflowForm);
   }
 
   async function handleWorkflowToggle(workflow: Workflow) {
@@ -663,6 +689,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
             onToggle={(workflow) => void handleWorkflowToggle(workflow)}
             onRun={(workflow) => void handleWorkflowRun(workflow)}
             onDelete={(workflow) => void handleWorkflowDelete(workflow)}
+            onEdit={handleWorkflowEdit}
             onSelectJob={(id) => setSelectedJobID(id)}
           />
         </Panel>
@@ -673,7 +700,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
     ),
     commands: (
       <section className="command-grid">
-        <Panel title="Tell Orchestrator what to do" subtitle="Describe the task and how often it should run. We’ll create the job or schedule for you.">
+        <Panel title={editingWorkflowID ? "Edit monitor" : "Tell Orchestrator what to do"} subtitle={editingWorkflowID ? "Update the monitor schedule, filters, or notification settings." : "Describe the task and how often it should run. We’ll create the job or schedule for you."}>
           <NaturalCommandForm
             prompt={commandPrompt}
             submitting={planning}
@@ -682,12 +709,14 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
             onSubmit={handleNaturalCommandSubmit}
           />
         </Panel>
-        <Panel title="Or, set up a schedule yourself" subtitle="Use the form below for recurring work. No ChatGPT connection needed.">
+        <Panel title={editingWorkflowID ? "Monitor details" : "Or, set up a schedule yourself"} subtitle={editingWorkflowID ? "Changes apply to future runs." : "Use the form below for recurring work. No ChatGPT connection needed."}>
           <WorkflowForm
             form={workflowForm}
             submitting={scheduling}
             onChange={setWorkflowForm}
             onSubmit={handleWorkflowSubmit}
+            editing={Boolean(editingWorkflowID)}
+            onCancel={editingWorkflowID ? handleWorkflowEditCancel : undefined}
           />
         </Panel>
       </section>
@@ -1125,12 +1154,16 @@ function WorkflowForm({
   form,
   submitting,
   onChange,
-  onSubmit
+  onSubmit,
+  editing,
+  onCancel
 }: {
   form: WorkflowFormState;
   submitting: boolean;
   onChange: (value: WorkflowFormState) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  editing?: boolean;
+  onCancel?: () => void;
 }) {
   const payload = parseWorkflowPayload(form.payload);
   const source = Array.isArray(payload.sources) && payload.sources[0] && typeof payload.sources[0] === "object"
@@ -1247,9 +1280,10 @@ function WorkflowForm({
           <input type="checkbox" checked={form.enabled} onChange={(event) => onChange({ ...form, enabled: event.target.checked })} />
           <span>Start automatically</span>
         </label>
+        {editing && onCancel && <button className="table-action" type="button" onClick={onCancel}>Cancel</button>}
         <button className="primary-button" type="submit" disabled={submitting || form.jobType.trim() === ""}>
           <Send size={16} />
-          {submitting ? "Saving schedule…" : "Save schedule"}
+          {submitting ? "Saving monitor…" : editing ? "Save monitor" : "Save schedule"}
         </button>
       </div>
     </form>
@@ -1784,6 +1818,7 @@ function WorkflowsTable({
   onToggle,
   onRun,
   onDelete,
+  onEdit,
   onSelectJob
 }: {
   workflows: Workflow[];
@@ -1793,6 +1828,7 @@ function WorkflowsTable({
   onToggle: (workflow: Workflow) => void;
   onRun: (workflow: Workflow) => void;
   onDelete: (workflow: Workflow) => void;
+  onEdit: (workflow: Workflow) => void;
   onSelectJob: (id: string) => void;
 }) {
   if (loading) {
@@ -1877,6 +1913,9 @@ function WorkflowsTable({
                     >
                       <Play size={16} />
                       Run now
+                    </button>
+                    <button className="table-action" type="button" onClick={() => onEdit(workflow)} aria-label="Edit monitor" title="Edit monitor">
+                      Edit
                     </button>
                     <button
                       className="table-action"
