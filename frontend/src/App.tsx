@@ -9,7 +9,6 @@ import {
   ExternalLink,
   KeyRound,
   LayoutDashboard,
-  ListChecks,
   LoaderCircle,
   Pause,
   Play,
@@ -83,12 +82,6 @@ const navItems: NavItem[] = [
     icon: <LayoutDashboard size={18} />
   },
   {
-    id: "jobs",
-    label: "Jobs",
-    description: "Executions",
-    icon: <ListChecks size={18} />
-  },
-  {
     id: "postings",
     label: "Postings",
     description: "Role matches",
@@ -96,8 +89,8 @@ const navItems: NavItem[] = [
   },
   {
     id: "workflows",
-    label: "Workflows",
-    description: "Schedules",
+    label: "Monitors",
+    description: "Schedules & runs",
     icon: <Clock3 size={18} />
   },
   {
@@ -438,11 +431,11 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       const created = await createNaturalCommand({ prompt: commandPrompt.trim() });
       if (created.action === "job" && created.job) {
         setSelectedJobID(created.job.id);
-        setActiveSection("jobs");
+        setActiveSection("workflows");
         setCommandResult(`Queued job: ${created.job.name}`);
       } else if (created.action === "workflow" && created.workflow) {
         setActiveSection("workflows");
-        setCommandResult(`Workflow saved: ${created.workflow.name}. ${created.workflow.enabled ? "It runs every " + formatInterval(created.workflow.interval_seconds) + ", even when this page is closed." + (created.workflow.job_type === "jobs.monitor.new_grad" ? " Matches appear in Postings." : " Follow progress in Jobs.") : "It is paused. Enable it in Workflows when you are ready."}`);
+        setCommandResult(`Monitor saved: ${created.workflow.name}. ${created.workflow.enabled ? "It runs every " + formatInterval(created.workflow.interval_seconds) + ", even when this page is closed." + (created.workflow.job_type === "jobs.monitor.new_grad" ? " Matches appear in Postings." : " Follow its runs here.") : "It is paused. Enable it in Monitors when you are ready."}`);
       }
       await refresh();
     } catch (err) {
@@ -472,7 +465,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           submitted_by: "dashboard"
         }
       });
-      setCommandResult(`Workflow saved: ${created.name}. ${created.enabled ? "It continues running when this page is closed." : "It is paused until you enable it."}`);
+      setCommandResult(`Monitor saved: ${created.name}. ${created.enabled ? "It continues running when this page is closed." : "It is paused until you enable it."}`);
       setActiveSection("workflows");
       await refresh();
     } catch (err) {
@@ -499,7 +492,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
     try {
       const job = await runWorkflow(workflow.id);
       setSelectedJobID(job.id);
-      setActiveSection("jobs");
+      setActiveSection("workflows");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to run workflow");
@@ -570,7 +563,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
           setPostingFilterForm(filters);
           setActiveSection("postings");
         }}
-        onSelectJob={(id) => { setSelectedJobID(id); setActiveSection("jobs"); }}
+        onSelectJob={(id) => { setSelectedJobID(id); setActiveSection("workflows"); }}
       />
       <details className="runtime-details">
         <summary>Runtime details <span>Queues, workers, execution history, and diagnostics</span></summary>
@@ -660,18 +653,23 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       </Panel>
     ),
     workflows: (
-      <Panel subtitle={`${workflows.length} recurring definitions`}>
-        <WorkflowsTable
-          workflows={workflows}
-          runs={workflowRuns}
-          jobs={jobs}
-          loading={loading}
-          onToggle={(workflow) => void handleWorkflowToggle(workflow)}
-          onRun={(workflow) => void handleWorkflowRun(workflow)}
-          onDelete={(workflow) => void handleWorkflowDelete(workflow)}
-          onSelectJob={setSelectedJobID}
-        />
-      </Panel>
+      <section className="split-view">
+        <Panel subtitle={`${workflows.length} monitors with schedules and recent runs`}>
+          <WorkflowsTable
+            workflows={workflows}
+            runs={workflowRuns}
+            jobs={jobs}
+            loading={loading}
+            onToggle={(workflow) => void handleWorkflowToggle(workflow)}
+            onRun={(workflow) => void handleWorkflowRun(workflow)}
+            onDelete={(workflow) => void handleWorkflowDelete(workflow)}
+            onSelectJob={(id) => setSelectedJobID(id)}
+          />
+        </Panel>
+        <Panel title="Run detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "Select a recent run"}>
+          {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="Select a run to inspect logs and results" />}
+        </Panel>
+      </section>
     ),
     commands: (
       <section className="command-grid">
@@ -893,7 +891,7 @@ function SummaryGrid({
       <SummaryCard label="Succeeded" value={summary.succeeded} icon={<CheckCircle2 size={20} />} tone="succeeded" />
       <SummaryCard label="Failed" value={summary.failed} icon={<XCircle size={20} />} tone="failed" />
       <SummaryCard label="Postings" value={summary.postings} icon={<ExternalLink size={20} />} tone="postings" />
-      <SummaryCard label="Workflows" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
+      <SummaryCard label="Monitors" value={summary.workflows} icon={<Clock3 size={20} />} tone="workflows" />
       <SummaryCard label="Results" value={summary.results} icon={<Terminal size={20} />} tone="results" />
       <SummaryCard label="Workers" value={summary.activeWorkers} icon={<Cpu size={20} />} tone="workers" />
     </section>
@@ -1798,10 +1796,10 @@ function WorkflowsTable({
   onSelectJob: (id: string) => void;
 }) {
   if (loading) {
-    return <EmptyState label="Loading workflows" />;
+    return <EmptyState label="Loading monitors" />;
   }
   if (workflows.length === 0) {
-    return <EmptyState label="No scheduled workflows" />;
+    return <EmptyState label="No monitors yet" />;
   }
 
   return (
@@ -1809,8 +1807,8 @@ function WorkflowsTable({
       <table>
         <thead>
           <tr>
-            <th>Workflow</th>
-            <th>Job Type</th>
+            <th>Monitor</th>
+            <th>Monitor type</th>
             <th>Status</th>
             <th>Interval</th>
             <th>Next Run</th>
