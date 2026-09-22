@@ -260,7 +260,9 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
   const [authInput, setAuthInput] = useState(getAuthToken());
 
   const selectedJob = useMemo(
-    () => jobs.find((job) => job.id === selectedJobID) ?? jobs[0],
+    () => selectedJobID
+      ? jobs.find((job) => job.id === selectedJobID)
+      : [...jobs].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0],
     [jobs, selectedJobID]
   );
 
@@ -272,8 +274,19 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
   const jobRows = useMemo(() => groupJobsByWorkflow(jobs), [jobs]);
 
   const sourceHealthResults = useMemo(
-    () => results.filter((result) => result.type === "monitor.source_health").slice(0, 6),
-    [results]
+    () => results
+      .filter((result) => result.type === "monitor.source_health")
+      .filter((result) => {
+        if (!result.workflow_id) return true;
+        const latestRun = workflowRuns
+          .filter((run) => run.workflow_id === result.workflow_id)
+          .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
+        if (!latestRun) return true;
+        const latestJob = jobs.find((job) => job.id === latestRun.job_id);
+        return latestJob ? latestJob.status === "failed" || latestJob.status === "dead_letter" : true;
+      })
+      .slice(0, 6),
+    [jobs, results, workflowRuns]
   );
 
   const activeNavItem = navItems.find((item) => item.id === activeSection) ?? navItems[0];
@@ -588,6 +601,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         postings={homePostings}
         workflows={workflows}
         jobs={jobs}
+        runs={workflowRuns}
         loading={loading}
         updatingID={updatingPostingID}
         onApplied={(posting) => void handlePostingApplied(posting, true)}
@@ -825,10 +839,11 @@ function GettingStarted({ aiConnected, onNavigate }: { aiConnected?: boolean; on
   );
 }
 
-function MatchesOverview({ postings, workflows, jobs, loading, updatingID, onApplied, onNavigate, onViewPostings, onSelectJob }: {
+function MatchesOverview({ postings, workflows, jobs, runs, loading, updatingID, onApplied, onNavigate, onViewPostings, onSelectJob }: {
   postings: Posting[];
   workflows: Workflow[];
   jobs: Job[];
+  runs: WorkflowRun[];
   loading: boolean;
   updatingID: string | null;
   onApplied: (posting: Posting) => void;
@@ -843,7 +858,10 @@ function MatchesOverview({ postings, workflows, jobs, loading, updatingID, onApp
   const next = [...enabled].sort((a, b) => Date.parse(a.next_run_at) - Date.parse(b.next_run_at))[0];
   const running = monitorJobs.filter((job) => job.status === "running").length;
   const failed = monitors.flatMap((workflow) => {
-    const job = monitorJobs.find((item) => item.id === workflow.last_job_id);
+    const latestRun = runs
+      .filter((run) => run.workflow_id === workflow.id)
+      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
+    const job = latestRun ? monitorJobs.find((item) => item.id === latestRun.job_id) : undefined;
     return job && (job.status === "failed" || job.status === "dead_letter") ? [{ workflow, job }] : [];
   });
   const recent = [...postings].filter((posting) => !posting.applied_at).sort((a, b) => Date.parse(b.first_seen_at) - Date.parse(a.first_seen_at)).slice(0, 8);
