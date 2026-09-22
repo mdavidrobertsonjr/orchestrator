@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ const (
 	maxSourceRetries  = 5
 	maxBackoffMS      = 30_000
 	maxRateLimitMS    = 60_000
+	maxSourceResponse = 16 << 20
 )
 
 const postingWriteConcurrency = 8
@@ -579,6 +581,10 @@ func retryDelay(resp *http.Response, backoff time.Duration, attempt int) time.Du
 	return time.Duration(float64(base) * (0.75 + rand.Float64()*0.5))
 }
 
+func decodeSourceJSON(resp *http.Response, value any) error {
+	return json.NewDecoder(io.LimitReader(resp.Body, maxSourceResponse)).Decode(value)
+}
+
 type FakeSource struct{}
 
 func (FakeSource) Fetch(ctx context.Context, config SourceConfig) ([]Candidate, error) {
@@ -641,7 +647,7 @@ func (s *GreenhouseSource) Fetch(ctx context.Context, config SourceConfig) ([]Ca
 	}
 
 	var body greenhouseJobsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := decodeSourceJSON(resp, &body); err != nil {
 		return nil, err
 	}
 
@@ -760,7 +766,7 @@ func (s *LeverSource) Fetch(ctx context.Context, config SourceConfig) ([]Candida
 	}
 
 	var postings []leverPosting
-	if err := json.NewDecoder(resp.Body).Decode(&postings); err != nil {
+	if err := decodeSourceJSON(resp, &postings); err != nil {
 		return nil, err
 	}
 
@@ -870,7 +876,7 @@ func (s *AshbySource) Fetch(ctx context.Context, config SourceConfig) ([]Candida
 	}
 
 	var body ashbyJobsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := decodeSourceJSON(resp, &body); err != nil {
 		return nil, err
 	}
 
@@ -1012,7 +1018,7 @@ func (s *WorkdaySource) Fetch(ctx context.Context, config SourceConfig) ([]Candi
 	}
 
 	var response workdayJobsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := decodeSourceJSON(resp, &response); err != nil {
 		return nil, err
 	}
 
@@ -1145,7 +1151,7 @@ func (s *SmartRecruitersSource) Fetch(ctx context.Context, config SourceConfig) 
 			return nil, fmt.Errorf("smartrecruiters returned status %d", resp.StatusCode)
 		}
 		var body smartRecruitersResponse
-		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		decodeErr := decodeSourceJSON(resp, &body)
 		resp.Body.Close()
 		if decodeErr != nil {
 			return nil, decodeErr
@@ -1304,7 +1310,7 @@ func (s *CustomSource) Fetch(ctx context.Context, config SourceConfig) ([]Candid
 
 func decodeCustomPostings(resp *http.Response) ([]customPosting, error) {
 	var raw json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := decodeSourceJSON(resp, &raw); err != nil {
 		return nil, err
 	}
 
