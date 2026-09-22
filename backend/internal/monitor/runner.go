@@ -224,12 +224,16 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 
 	result := &Result{}
 	successfulSources := 0
+	retryableSourceErrors := false
 	for _, fetchedSource := range fetched {
 		sourceConfig := fetchedSource.config
 		if fetchedSource.err != nil {
 			sourceErr := fmt.Sprintf("%s: %v", sourceName(sourceConfig), fetchedSource.err)
 			result.SourceErrors = append(result.SourceErrors, sourceErr)
 			result.SourceStats = append(result.SourceStats, SourceStat{Source: sourceName(sourceConfig), Status: "failed", DurationMS: fetchedSource.duration.Milliseconds()})
+			if !isPermanentSourceError(fetchedSource.err) {
+				retryableSourceErrors = true
+			}
 			log(logf, "monitor source failed: "+sourceErr)
 			continue
 		}
@@ -287,7 +291,7 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		}
 	}
 
-	if successfulSources == 0 {
+	if successfulSources == 0 && retryableSourceErrors {
 		return nil, errors.Join(errorStrings(result.SourceErrors)...)
 	}
 	if len(result.SourceErrors) > 0 {
@@ -295,6 +299,28 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 	}
 	log(logf, fmt.Sprintf("monitor completed: scanned=%d matched=%d new=%d updated=%d", result.Scanned, result.Matched, result.Created, result.Updated))
 	return result, nil
+}
+
+func isPermanentSourceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"invalid character '<'",
+		"unexpected end of json input",
+		"unexpected eof",
+		"returned status 400",
+		"returned status 401",
+		"returned status 403",
+		"returned status 404",
+		"requires ",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func smartRecruitersIdentifier(rawURL string) string {

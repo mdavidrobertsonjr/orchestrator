@@ -117,6 +117,19 @@ func TestInferATSURL(t *testing.T) {
 	}
 }
 
+func TestPermanentSourceErrorsDoNotRetryWholeMonitor(t *testing.T) {
+	runner := NewRunner(postings.NewMemoryStore(), map[string]Source{
+		"broken": failingSource{err: errors.New("invalid character '<' looking for beginning of value")},
+	})
+	result, err := runner.Run(t.Context(), map[string]any{"sources": []map[string]any{{"type": "broken", "name": "Broken"}}}, nil)
+	if err != nil {
+		t.Fatalf("expected permanent source failure to be recorded, got %v", err)
+	}
+	if result == nil || len(result.SourceErrors) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	s.started <- struct{}{}
 	<-s.release
