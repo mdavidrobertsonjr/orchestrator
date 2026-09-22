@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"orchestrator/backend/internal/postings"
@@ -83,6 +84,13 @@ type Result struct {
 	SourceErrors []string
 }
 
+type sourceFetchResult struct {
+	config     SourceConfig
+	sourceType string
+	candidates []Candidate
+	err        error
+}
+
 func NewRunner(store postings.Store, sources map[string]Source) *Runner {
 	if sources == nil {
 		sources = map[string]Source{}
@@ -124,33 +132,44 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		payload.MinScore = 1
 	}
 
-	result := &Result{}
-	successfulSources := 0
-	for _, sourceConfig := range payload.Sources {
+	fetched := make([]sourceFetchResult, len(payload.Sources))
+	var fetchWG sync.WaitGroup
+	for index, sourceConfig := range payload.Sources {
 		sourceType := strings.TrimSpace(sourceConfig.Type)
 		if sourceType == "" {
 			sourceType = "fake"
 		}
-
 		source, ok := r.sources[sourceType]
 		if !ok {
 			return nil, fmt.Errorf("unsupported monitor source type %q", sourceType)
 		}
-		if err := applySourceRateLimit(ctx, sourceConfig); err != nil {
-			return nil, err
-		}
+		fetched[index] = sourceFetchResult{config: sourceConfig, sourceType: sourceType}
+		fetchWG.Add(1)
+		go func(index int, config SourceConfig, sourceType string, source Source) {
+			defer fetchWG.Done()
+			if err := applySourceRateLimit(ctx, config); err != nil {
+				fetched[index].err = err
+				return
+			}
+			fetched[index].candidates, fetched[index].err = source.Fetch(ctx, config)
+		}(index, sourceConfig, sourceType, source)
+	}
+	fetchWG.Wait()
 
-		candidates, err := source.Fetch(ctx, sourceConfig)
-		if err != nil {
-			sourceErr := fmt.Sprintf("%s: %v", sourceName(sourceConfig), err)
+	result := &Result{}
+	successfulSources := 0
+	for _, fetchedSource := range fetched {
+		sourceConfig := fetchedSource.config
+		if fetchedSource.err != nil {
+			sourceErr := fmt.Sprintf("%s: %v", sourceName(sourceConfig), fetchedSource.err)
 			result.SourceErrors = append(result.SourceErrors, sourceErr)
 			log(logf, "monitor source failed: "+sourceErr)
 			continue
 		}
 		successfulSources++
-		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(candidates)))
+		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(fetchedSource.candidates)))
 
-		for _, candidate := range candidates {
+		for _, candidate := range fetchedSource.candidates {
 			result.Scanned++
 			score, reasons := scoreCandidate(candidate, payload)
 			if score < payload.MinScore {

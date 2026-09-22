@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"orchestrator/backend/internal/postings"
 )
@@ -12,6 +13,45 @@ type failingSource struct{ err error }
 
 func (s failingSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
 	return nil, s.err
+}
+
+type gateSource struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (s gateSource) Fetch(context.Context, SourceConfig) ([]Candidate, error) {
+	s.started <- struct{}{}
+	<-s.release
+	return nil, nil
+}
+
+func TestRunnerFetchesSourcesConcurrently(t *testing.T) {
+	startedA := make(chan struct{}, 1)
+	startedB := make(chan struct{}, 1)
+	release := make(chan struct{})
+	runner := NewRunner(postings.NewMemoryStore(), map[string]Source{
+		"a": gateSource{started: startedA, release: release},
+		"b": gateSource{started: startedB, release: release},
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := runner.Run(t.Context(), map[string]any{"sources": []map[string]any{{"type": "a"}, {"type": "b"}}}, nil)
+		done <- err
+	}()
+
+	for _, started := range []<-chan struct{}{startedA, startedB} {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("source did not start concurrently")
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("run monitor: %v", err)
+	}
 }
 
 func TestRunnerKeepsSuccessfulSourcesWhenOneFails(t *testing.T) {
