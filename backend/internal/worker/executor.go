@@ -424,6 +424,7 @@ func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.R
 			"created":       result.Created,
 			"updated":       result.Updated,
 			"source_errors": result.SourceErrors,
+			"source_stats":  result.SourceStats,
 			"alert_sent":    alertSent,
 		},
 	})

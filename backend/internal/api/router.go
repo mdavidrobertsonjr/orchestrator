@@ -157,15 +157,24 @@ type naturalCommandResponse struct {
 }
 
 type metricsResponse struct {
-	GeneratedAt   time.Time         `json:"generated_at"`
-	Queue         queueMetrics      `json:"queue"`
-	Jobs          jobMetrics        `json:"jobs"`
-	Workers       workerMetrics     `json:"workers"`
-	Workflows     workflowMetrics   `json:"workflows"`
-	Postings      collectionMetrics `json:"postings"`
-	Results       collectionMetrics `json:"results"`
-	Notifications collectionMetrics `json:"notifications"`
-	Alerts        []alertMetric     `json:"alerts"`
+	GeneratedAt   time.Time                     `json:"generated_at"`
+	Queue         queueMetrics                  `json:"queue"`
+	Jobs          jobMetrics                    `json:"jobs"`
+	Workers       workerMetrics                 `json:"workers"`
+	Workflows     workflowMetrics               `json:"workflows"`
+	Postings      collectionMetrics             `json:"postings"`
+	Results       collectionMetrics             `json:"results"`
+	Notifications collectionMetrics             `json:"notifications"`
+	SourceHealth  map[string]sourceHealthMetric `json:"source_health"`
+	Alerts        []alertMetric                 `json:"alerts"`
+}
+
+type sourceHealthMetric struct {
+	Runs            int   `json:"runs"`
+	Failures        int   `json:"failures"`
+	TotalDurationMS int64 `json:"total_duration_ms"`
+	Candidates      int   `json:"candidates"`
+	Limited         int   `json:"limited_runs"`
 }
 
 type queueMetrics struct {
@@ -720,6 +729,7 @@ func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 		Workers: workerMetrics{
 			ByStatus: map[string]int{},
 		},
+		SourceHealth: map[string]sourceHealthMetric{},
 	}
 	if response.Queue.Capacity > 0 {
 		response.Queue.Utilization = float64(response.Queue.Queued) / float64(response.Queue.Capacity)
@@ -802,6 +812,36 @@ func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 			return metricsResponse{}, false
 		}
 		response.Results.Total = len(results)
+		for _, result := range results {
+			stats, ok := result.Data["source_stats"]
+			if !ok {
+				continue
+			}
+			var entries []struct {
+				Source     string `json:"source"`
+				Status     string `json:"status"`
+				DurationMS int64  `json:"duration_ms"`
+				Candidates int    `json:"candidates"`
+				Limited    bool   `json:"limited"`
+			}
+			encoded, marshalErr := json.Marshal(stats)
+			if marshalErr != nil || json.Unmarshal(encoded, &entries) != nil {
+				continue
+			}
+			for _, entry := range entries {
+				metric := response.SourceHealth[entry.Source]
+				metric.Runs++
+				if entry.Status == "failed" {
+					metric.Failures++
+				}
+				metric.TotalDurationMS += entry.DurationMS
+				metric.Candidates += entry.Candidates
+				if entry.Limited {
+					metric.Limited++
+				}
+				response.SourceHealth[entry.Source] = metric
+			}
+		}
 	}
 
 	if s.notifications != nil {
@@ -858,6 +898,16 @@ func operationalAlerts(metrics metricsResponse) []alertMetric {
 			Value:    metrics.Notifications.Failed,
 		})
 	}
+	for source, health := range metrics.SourceHealth {
+		if health.Failures > 0 {
+			alerts = append(alerts, alertMetric{
+				Severity: "warning",
+				Name:     "source_failures_" + source,
+				Message:  "one or more monitor source checks failed for " + source,
+				Value:    health.Failures,
+			})
+		}
+	}
 	return alerts
 }
 
@@ -888,6 +938,14 @@ func prometheusMetrics(metrics metricsResponse) string {
 	writePromMetric(&out, "orchestrator_results_total", nil, float64(metrics.Results.Total))
 	writePromMetric(&out, "orchestrator_notifications_total", nil, float64(metrics.Notifications.Total))
 	writePromMetric(&out, "orchestrator_notifications_failed", nil, float64(metrics.Notifications.Failed))
+	for source, health := range metrics.SourceHealth {
+		labels := map[string]string{"source": source}
+		writePromMetric(&out, "orchestrator_monitor_source_runs_total", labels, float64(health.Runs))
+		writePromMetric(&out, "orchestrator_monitor_source_failures_total", labels, float64(health.Failures))
+		writePromMetric(&out, "orchestrator_monitor_source_duration_ms_total", labels, float64(health.TotalDurationMS))
+		writePromMetric(&out, "orchestrator_monitor_source_candidates_total", labels, float64(health.Candidates))
+		writePromMetric(&out, "orchestrator_monitor_source_limited_runs_total", labels, float64(health.Limited))
+	}
 	for _, alert := range metrics.Alerts {
 		writePromMetric(&out, "orchestrator_operational_alert", map[string]string{"name": alert.Name, "severity": alert.Severity}, float64(alert.Value))
 	}

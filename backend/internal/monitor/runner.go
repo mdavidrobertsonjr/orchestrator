@@ -98,6 +98,15 @@ type Result struct {
 	Updated      int
 	NewPostings  []*postings.Posting
 	SourceErrors []string
+	SourceStats  []SourceStat
+}
+
+type SourceStat struct {
+	Source     string `json:"source"`
+	Status     string `json:"status"`
+	DurationMS int64  `json:"duration_ms"`
+	Candidates int    `json:"candidates"`
+	Limited    bool   `json:"limited"`
 }
 
 type sourceFetchResult struct {
@@ -105,6 +114,7 @@ type sourceFetchResult struct {
 	sourceType string
 	candidates []Candidate
 	err        error
+	duration   time.Duration
 }
 
 type matchedPosting struct {
@@ -175,6 +185,8 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		fetchWG.Add(1)
 		go func(index int, config SourceConfig, sourceType string, source Source) {
 			defer fetchWG.Done()
+			started := time.Now()
+			defer func() { fetched[index].duration = time.Since(started) }()
 			if candidates, ok := r.cachedSource(sourceType, config); ok {
 				fetched[index].candidates = candidates
 				return
@@ -198,15 +210,19 @@ func (r *Runner) Run(ctx context.Context, rawPayload map[string]any, logf func(s
 		if fetchedSource.err != nil {
 			sourceErr := fmt.Sprintf("%s: %v", sourceName(sourceConfig), fetchedSource.err)
 			result.SourceErrors = append(result.SourceErrors, sourceErr)
+			result.SourceStats = append(result.SourceStats, SourceStat{Source: sourceName(sourceConfig), Status: "failed", DurationMS: fetchedSource.duration.Milliseconds()})
 			log(logf, "monitor source failed: "+sourceErr)
 			continue
 		}
 		successfulSources++
 		candidates := fetchedSource.candidates
+		limited := false
 		if sourceConfig.Limit > 0 && len(candidates) > sourceConfig.Limit {
+			limited = true
 			log(logf, fmt.Sprintf("monitor source %q limited from %d to %d postings", sourceName(sourceConfig), len(candidates), sourceConfig.Limit))
 			candidates = candidates[:sourceConfig.Limit]
 		}
+		result.SourceStats = append(result.SourceStats, SourceStat{Source: sourceName(sourceConfig), Status: "succeeded", DurationMS: fetchedSource.duration.Milliseconds(), Candidates: len(candidates), Limited: limited})
 		log(logf, fmt.Sprintf("monitor source %q returned %d postings", sourceName(sourceConfig), len(candidates)))
 
 		matched := make([]matchedPosting, 0, len(candidates))
