@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -53,6 +54,13 @@ func TestRunnerBoundsSourceCache(t *testing.T) {
 	defer runner.cacheMu.Unlock()
 	if len(runner.sourceCache) != sourceCacheMaxEntries {
 		t.Fatalf("expected cache size %d, got %d", sourceCacheMaxEntries, len(runner.sourceCache))
+	}
+}
+
+func TestRetryDelayHonorsRetryAfter(t *testing.T) {
+	response := &http.Response{Header: http.Header{"Retry-After": []string{"3"}}}
+	if got := retryDelay(response, time.Second, 0); got != 3*time.Second {
+		t.Fatalf("expected Retry-After delay, got %s", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -469,7 +470,7 @@ func doRequestWithRetries(ctx context.Context, newRequest func() (*http.Request,
 		if attempt == maxRetries {
 			break
 		}
-		delay := backoff * time.Duration(1<<attempt)
+		delay := retryDelay(resp, backoff, attempt)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -479,6 +480,25 @@ func doRequestWithRetries(ctx context.Context, newRequest func() (*http.Request,
 		}
 	}
 	return nil, lastErr
+}
+
+func retryDelay(resp *http.Response, backoff time.Duration, attempt int) time.Duration {
+	if resp != nil {
+		if value := strings.TrimSpace(resp.Header.Get("Retry-After")); value != "" {
+			if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+				return time.Duration(seconds) * time.Second
+			}
+			if when, err := http.ParseTime(value); err == nil {
+				if delay := time.Until(when); delay > 0 {
+					return delay
+				}
+				return 0
+			}
+		}
+	}
+	base := backoff * time.Duration(1<<attempt)
+	// Spread simultaneous retries across a 75%-125% window.
+	return time.Duration(float64(base) * (0.75 + rand.Float64()*0.5))
 }
 
 type FakeSource struct{}
