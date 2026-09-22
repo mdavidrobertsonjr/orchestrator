@@ -49,6 +49,10 @@ Supported monitor sources:
 ```
 
 ```json
+{ "type": "smartrecruiters", "company": "ExampleCo", "company_identifier": "exampleco" }
+```
+
+```json
 {
   "type": "workday",
   "company": "ExampleCo",

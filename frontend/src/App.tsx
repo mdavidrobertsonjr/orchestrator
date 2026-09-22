@@ -1230,6 +1230,7 @@ function WorkflowForm({
               <option value="lever">Lever</option>
               <option value="ashby">Ashby</option>
               <option value="workday">Workday</option>
+              <option value="smartrecruiters">SmartRecruiters</option>
               <option value="custom">Custom feed</option>
             </select>
           </label>
@@ -1312,6 +1313,7 @@ function sourceIdentifierKey(type: string) {
   if (type === "lever") return "account_name";
   if (type === "ashby") return "job_board_name";
   if (type === "workday") return "endpoint";
+  if (type === "smartrecruiters") return "company_identifier";
   return "url";
 }
 
@@ -1533,6 +1535,7 @@ function PostingFilterBar({
           <option value="greenhouse">Greenhouse</option>
           <option value="lever">Lever</option>
           <option value="workday">Workday</option>
+          <option value="smartrecruiters">SmartRecruiters</option>
           <option value="fake">Fake</option>
         </select>
       </label>

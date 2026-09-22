@@ -137,6 +137,7 @@ Supported sources:
 - Greenhouse: `board_token`
 - Lever: `account_name`
 - Ashby: `job_board_name`
+- SmartRecruiters: `company_identifier`
 - Workday: `tenant` and `site`, or a direct `api_url`
 - Custom JSON careers feeds: `url`
 - Fake source for deterministic demos and tests

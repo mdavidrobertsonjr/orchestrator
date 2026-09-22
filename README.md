@@ -8,7 +8,7 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 
 - Durable Go control plane with a job state machine, worker leases, retry/dead-letter behavior, and Postgres-backed queue mode.
 - Recurring workflow scheduler with idempotent dispatch records and manual run support.
-- Real product workflow for monitoring Greenhouse, Lever, Ashby, Workday, and custom job feeds.
+- Real product workflow for monitoring Greenhouse, Lever, Ashby, SmartRecruiters, Workday, and custom job feeds.
 - Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
 - React operations dashboard for queue health, jobs, workflow runs, workers, postings, application tracking, results, logs, metrics, and alerts.
 - Natural-language job/workflow planning through a local `OPENAI_API_KEY` or each hosted user's connected ChatGPT/Codex account.
