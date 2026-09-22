@@ -381,7 +381,9 @@ func (s *GreenhouseSource) Fetch(ctx context.Context, config SourceConfig) ([]Ca
 		return nil, err
 	}
 	query := parsed.Query()
-	query.Set("content", "true")
+	// Job descriptions are not used by the monitor and can make large boards
+	// exceed the hosted outbound response limit.
+	query.Set("content", "false")
 	parsed.RawQuery = query.Encode()
 
 	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {

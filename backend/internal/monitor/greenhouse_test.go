@@ -43,7 +43,7 @@ func TestGreenhouseSourceFetchesAndNormalizesJobs(t *testing.T) {
 	if requestedPath != "/v1/boards/acme/jobs" {
 		t.Fatalf("unexpected request path %q", requestedPath)
 	}
-	if requestedQuery != "content=true" {
+	if requestedQuery != "content=false" {
 		t.Fatalf("unexpected query %q", requestedQuery)
 	}
 	if len(candidates) != 1 {
