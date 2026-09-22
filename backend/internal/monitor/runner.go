@@ -31,6 +31,8 @@ type Runner struct {
 
 const sourceCacheTTL = 2 * time.Minute
 
+const sourceCacheMaxEntries = 256
+
 type cachedSource struct {
 	fetchedAt  time.Time
 	candidates []Candidate
@@ -299,6 +301,19 @@ func (r *Runner) cachedSource(sourceType string, config SourceConfig) ([]Candida
 func (r *Runner) cacheSource(sourceType string, config SourceConfig, candidates []Candidate) {
 	key := sourceCacheKey(sourceType, config)
 	r.cacheMu.Lock()
+	if _, exists := r.sourceCache[key]; !exists && len(r.sourceCache) >= sourceCacheMaxEntries {
+		var oldestKey string
+		var oldest time.Time
+		for candidateKey, entry := range r.sourceCache {
+			if oldestKey == "" || entry.fetchedAt.Before(oldest) {
+				oldestKey = candidateKey
+				oldest = entry.fetchedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(r.sourceCache, oldestKey)
+		}
+	}
 	r.sourceCache[key] = cachedSource{fetchedAt: time.Now(), candidates: append([]Candidate(nil), candidates...)}
 	r.cacheMu.Unlock()
 }

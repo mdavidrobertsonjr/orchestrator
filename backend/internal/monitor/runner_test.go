@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -39,6 +40,19 @@ func TestRunnerReusesRecentlySuccessfulSourceOnRetry(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("expected cached source to avoid refetch, got %d calls", calls)
+	}
+}
+
+func TestRunnerBoundsSourceCache(t *testing.T) {
+	runner := NewRunner(postings.NewMemoryStore(), nil)
+	for index := 0; index < sourceCacheMaxEntries+1; index++ {
+		runner.cacheSource("fake", SourceConfig{Name: fmt.Sprintf("source-%d", index)}, []Candidate{{Title: "job"}})
+	}
+
+	runner.cacheMu.Lock()
+	defer runner.cacheMu.Unlock()
+	if len(runner.sourceCache) != sourceCacheMaxEntries {
+		t.Fatalf("expected cache size %d, got %d", sourceCacheMaxEntries, len(runner.sourceCache))
 	}
 }
 
