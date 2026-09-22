@@ -453,6 +453,27 @@ td span {
   margin-top: 3px;
 }
 
+.monitor-companies {
+  color: #526579;
+  font-size: 12px;
+  margin-top: 7px;
+  max-width: 320px;
+  white-space: normal;
+}
+
+.monitor-companies summary {
+  color: #1769aa;
+  cursor: pointer;
+  font-size: 12px;
+  list-style-position: inside;
+}
+
+.monitor-companies div {
+  line-height: 1.45;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
 .posting-link {
   align-items: center;
   color: #17202a;

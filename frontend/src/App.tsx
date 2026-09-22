@@ -1822,6 +1822,22 @@ function formatPostingReason(reason: string) {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)} · ${value}`;
 }
 
+function monitorCompanies(workflow: Workflow): string[] {
+  const sources = Array.isArray(workflow.payload?.sources) ? workflow.payload.sources : [];
+  const companies = sources
+    .filter((source): source is Record<string, unknown> => Boolean(source && typeof source === "object"))
+    .map((source) => {
+      const company = typeof source.company === "string" ? source.company.trim() : "";
+      if (company) return company;
+      for (const key of ["board_token", "account_name", "job_board_name", "company_identifier"]) {
+        const value = source[key];
+        if (typeof value === "string" && value.trim()) return value.trim();
+      }
+      return "Unnamed source";
+    });
+  return [...new Set(companies)];
+}
+
 function WorkflowsTable({
   workflows,
   runs,
@@ -1870,12 +1886,19 @@ function WorkflowsTable({
               .filter((run) => run.workflow_id === workflow.id)
               .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
               .slice(0, 3);
+            const companies = monitorCompanies(workflow);
 
             return (
               <tr key={workflow.id}>
                 <td>
                   <strong>{workflow.name}</strong>
                   <span>{workflow.id.slice(0, 12)}</span>
+                  {companies.length > 0 && (
+                    <details className="monitor-companies">
+                      <summary>{companies.length} {companies.length === 1 ? "company" : "companies"}</summary>
+                      <div>{companies.join(", ")}</div>
+                    </details>
+                  )}
                 </td>
                 <td>{workflow.job_type}</td>
                 <td>
