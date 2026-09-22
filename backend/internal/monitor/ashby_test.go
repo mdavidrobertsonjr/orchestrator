@@ -58,7 +58,7 @@ func TestAshbySourceFetchesAndNormalizesJobs(t *testing.T) {
 	if requestedPath != "/posting-api/job-board/acme" {
 		t.Fatalf("unexpected request path %q", requestedPath)
 	}
-	if requestedQuery != "includeCompensation=true" {
+	if requestedQuery != "includeCompensation=false" {
 		t.Fatalf("unexpected query %q", requestedQuery)
 	}
 	if len(candidates) != 1 {

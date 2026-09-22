@@ -607,7 +607,10 @@ func (s *AshbySource) Fetch(ctx context.Context, config SourceConfig) ([]Candida
 		return nil, err
 	}
 	query := parsed.Query()
-	query.Set("includeCompensation", "true")
+	// Compensation data can make large Ashby boards exceed the hosted
+	// outbound response limit. Matching does not depend on it, so keep the
+	// response focused on the fields needed for discovery and scoring.
+	query.Set("includeCompensation", "false")
 	parsed.RawQuery = query.Encode()
 
 	resp, err := doRequestWithRetries(ctx, func() (*http.Request, error) {
