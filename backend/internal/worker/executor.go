@@ -412,11 +412,12 @@ func (e *SimulatedExecutor) recordMonitorResult(job *jobs.Job, result *monitor.R
 		Type:       "monitor.summary",
 		Summary:    fmt.Sprintf("scanned %d postings, matched %d, new %d", result.Scanned, result.Matched, result.Created),
 		Data: map[string]any{
-			"scanned":    result.Scanned,
-			"matched":    result.Matched,
-			"created":    result.Created,
-			"updated":    result.Updated,
-			"alert_sent": alertSent,
+			"scanned":       result.Scanned,
+			"matched":       result.Matched,
+			"created":       result.Created,
+			"updated":       result.Updated,
+			"source_errors": result.SourceErrors,
+			"alert_sent":    alertSent,
 		},
 	})
 	if err != nil {
