@@ -9,12 +9,15 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 - Durable Go control plane with a job state machine, worker leases, retry/dead-letter behavior, and Postgres-backed queue mode.
 - Recurring workflow scheduler with idempotent dispatch records and manual run support.
 - Real product workflow for monitoring Greenhouse, Lever, Ashby, SmartRecruiters, Workday, and custom job feeds.
+- Automatic ATS adapter detection from supported careers-board URLs, alongside explicit source configuration.
+- Per-source monitor health: failed sources are reported as warnings when other sources return successfully, and transient failures can retry the job.
 - Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
 - React operations dashboard for queue health, jobs, workflow runs, workers, postings, application tracking, results, logs, metrics, and alerts.
+- Monitor views show configured companies, schedules, recent runs, source warnings, and recovery state; matched postings can be tracked as applied.
 - Natural-language job/workflow planning through a local `OPENAI_API_KEY` or each hosted user's connected ChatGPT/Codex account.
 - Idempotent natural-language scheduling that reuses an equivalent workflow instead of creating duplicates.
 - Tracked SMTP delivery with configurable recipients and persisted success/failure state; hosted alerts and digests are delivered to each account's verified email address.
-- Automated backend tests, Postgres integration coverage, frontend type-checking, and production builds.
+- Automated backend tests, Postgres integration coverage, frontend type-checking, production builds, and a hosted-dashboard browser regression check.
 
 ## Product Tour
 
@@ -97,7 +100,18 @@ make migration-gate       # Verify startup with automatic migrations disabled
 make smoke-distributed    # Distributed API/worker smoke test
 make check-deploy         # Validate deployment environment settings
 make compose-app          # Containerized API, worker, and Postgres
+make compose-app-stop     # Stop the containerized app stack
+make prune-postings       # Dry-run removal of low-signal postings
 make postgres-stop        # Stop local Postgres
+```
+
+`make test` runs the backend Go tests and frontend production build. The hosted
+dashboard browser regression check is separate; after installing dependencies and
+building the frontend, run:
+
+```bash
+cd frontend
+npm run test:hosted
 ```
 
 For a small VPS or cloud VM deployment, see [Deploy On A Small VPS](docs/deploy-vps.md).
@@ -173,6 +187,13 @@ The seed script creates hourly `jobs.monitor.new_grad` workflows using supported
 ```bash
 ORCH_MONITOR_URL=http://localhost:8080 ORCH_MONITOR_INTERVAL_SECONDS=86400 make seed-job-monitors
 ```
+
+Monitor sources may be configured explicitly by ATS type, or supplied as a supported
+careers-board URL for automatic adapter detection. A failed company source does not
+discard results from healthy sources: the run records source-level warnings and
+continues when at least one source succeeds. Transient failures across all sources
+remain retryable. The dashboard shows warnings with run details and clears stale
+failure indicators after a successful recovery.
 
 See [Job Types](docs/job-types.md) for supported executors, payload examples, notification settings, and monitor sources.
 
