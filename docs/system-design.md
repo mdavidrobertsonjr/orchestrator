@@ -36,26 +36,73 @@ Non-functional requirements:
 
 ## Architecture
 
-```text
-Dashboard / API clients
-        |
-        v
-Go HTTP control plane
-        |
-        +--> Jobs store and queue
-        +--> Workflow definitions
-        +--> Workflow run audit records
-        +--> Posting/result stores
-        +--> Worker registry
-        |
-        v
-Scheduler loop creates due jobs
-        |
-        v
-Worker pool claims jobs with leases
-        |
-        v
-Typed executors fetch sources, store results, send alerts
+```mermaid
+flowchart LR
+    user[Dashboard or API client] --> api[Go HTTP API]
+    api --> jobs[(Jobs store)]
+    api --> workflows[(Workflow store)]
+    api --> postings[(Postings store)]
+    api --> results[(Results and notifications)]
+
+    scheduler[Scheduler] --> workflows
+    scheduler --> runs[(Workflow run history)]
+    scheduler --> jobs
+    jobs --> queue[Queue / claim polling]
+    queue --> workers[Embedded or standalone workers]
+    workers --> jobs
+    workers --> registry[(Worker registry)]
+    workers --> executors[Typed executors]
+    executors --> postings
+    executors --> results
+    executors --> external[ATS feeds, HTTP services, SMTP]
+    dashboard[React dashboard] <--> api
+
+    classDef durable fill:#e8f1ff,stroke:#4774a6,color:#172b4d
+    class jobs,workflows,runs,postings,results durable
+```
+
+The stores are in memory for local development or PostgreSQL for durable deployments.
+In PostgreSQL mode, workers claim queued rows directly from the jobs table; there is
+no separate broker. The scheduler creates ordinary jobs from recurring workflow
+definitions. Workers run them through the same executor path as immediate jobs.
+
+### Job execution and recovery
+
+```mermaid
+sequenceDiagram
+    participant S as Scheduler or API
+    participant J as Jobs store
+    participant Q as Queue / claim loop
+    participant W as Worker
+    participant X as Executor
+    participant R as Lease reclaimer
+
+    S->>J: Create job (queued)
+    S->>Q: Enqueue job ID (memory mode)
+    Q->>J: Claim queued job
+    Note over J: Atomic queued → running; attempts + 1; owner and lease deadline set
+    J-->>W: Claimed job
+    W->>X: Execute
+    alt Executor succeeds
+        X-->>W: Success
+        W->>J: Mark succeeded; clear lease
+    else Executor fails and attempts remain
+        X-->>W: Error
+        W->>J: Mark queued; record error in log
+        W->>Q: Enqueue for another attempt
+    else Executor fails on final attempt
+        X-->>W: Error
+        W->>J: Mark dead letter
+    end
+    loop Every lease sweep interval
+        R->>J: Find running jobs whose lease expired
+        alt Attempts remain
+            J-->>R: Set queued; clear lease
+            R->>Q: Re-enqueue (memory mode)
+        else Attempts exhausted
+            J-->>R: Set dead letter
+        end
+    end
 ```
 
 Important implementation boundaries:
