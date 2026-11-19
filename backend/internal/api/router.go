@@ -759,7 +759,7 @@ func (s *Server) collectMetrics(w http.ResponseWriter) (metricsResponse, bool) {
 	for _, worker := range normalizedWorkers(s.workers.List(), now) {
 		response.Workers.Total++
 		response.Workers.ByStatus[string(worker.Status)]++
-		if worker.Status != workers.StatusStopped {
+		if worker.Status == workers.StatusIdle || worker.Status == workers.StatusRunning {
 			response.Workers.Active++
 		}
 		if worker.Status == workers.StatusRunning {
@@ -984,16 +984,20 @@ func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 const workerStaleAfter = 30 * time.Second
 
 func normalizedWorkers(items []*workers.Worker, now time.Time) []*workers.Worker {
+	normalized := make([]*workers.Worker, 0, len(items))
 	for _, worker := range items {
-		if worker == nil || worker.Status == workers.StatusStopped || worker.LastHeartbeat.IsZero() {
+		if worker == nil {
 			continue
 		}
-		if now.Sub(worker.LastHeartbeat) > workerStaleAfter {
-			worker.Status = workers.StatusStopped
-			worker.CurrentJobID = ""
+		snapshot := *worker
+		if snapshot.Status != workers.StatusStopped &&
+			(snapshot.LastHeartbeat.IsZero() || now.Sub(snapshot.LastHeartbeat) > workerStaleAfter) {
+			snapshot.Status = workers.StatusUnresponsive
+			snapshot.CurrentJobID = ""
 		}
+		normalized = append(normalized, &snapshot)
 	}
-	return items
+	return normalized
 }
 
 func (s *Server) handleListPostings(w http.ResponseWriter, r *http.Request) {

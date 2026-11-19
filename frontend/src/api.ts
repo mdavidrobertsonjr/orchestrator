@@ -77,7 +77,7 @@ export type NotificationDelivery = {
   updated_at: string;
 };
 
-export type WorkerStatus = "idle" | "running" | "stopped";
+export type WorkerStatus = "idle" | "running" | "stopped" | "unresponsive";
 
 export type Worker = {
   id: string;

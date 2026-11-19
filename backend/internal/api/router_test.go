@@ -1530,7 +1530,7 @@ func testRouterWithWorkflows(workflowStore workflows.Store) http.Handler {
 	})
 }
 
-func TestNormalizedWorkersMarksStaleHeartbeatStopped(t *testing.T) {
+func TestNormalizedWorkersMarksMissingHeartbeatUnresponsive(t *testing.T) {
 	now := time.Now().UTC()
 	items := []*workers.Worker{
 		{ID: "current", Status: workers.StatusIdle, LastHeartbeat: now.Add(-5 * time.Second)},
@@ -1542,8 +1542,11 @@ func TestNormalizedWorkersMarksStaleHeartbeatStopped(t *testing.T) {
 	if normalized[0].Status != workers.StatusIdle {
 		t.Fatalf("expected current worker to stay idle, got %q", normalized[0].Status)
 	}
-	if normalized[1].Status != workers.StatusStopped || normalized[1].CurrentJobID != "" {
-		t.Fatalf("expected stale worker to be stopped, got %#v", normalized[1])
+	if normalized[1].Status != workers.StatusUnresponsive || normalized[1].CurrentJobID != "" {
+		t.Fatalf("expected stale worker to be unresponsive, got %#v", normalized[1])
+	}
+	if items[1].Status != workers.StatusRunning || items[1].CurrentJobID != "old-job" {
+		t.Fatal("normalizing response changed the registry record")
 	}
 	if normalized[2].Status != workers.StatusStopped {
 		t.Fatalf("expected stopped worker to remain stopped, got %q", normalized[2].Status)
@@ -1577,4 +1580,69 @@ func (p fakePlanner) PlanWorkflow(context.Context, string) (*llm.WorkflowPlan, e
 
 func (p fakePlanner) PlanCommand(context.Context, string) (*llm.CommandPlan, error) {
 	return p.commandPlan, p.err
+}
+
+func TestNormalizedWorkersHeartbeatBoundaryAndRecovery(t *testing.T) {
+	now := time.Now().UTC()
+	worker := &workers.Worker{ID: "worker", Status: workers.StatusRunning, CurrentJobID: "job", LastHeartbeat: now.Add(-workerStaleAfter)}
+	if got := normalizedWorkers([]*workers.Worker{worker}, now)[0]; got.Status != workers.StatusRunning {
+		t.Fatalf("worker at timeout boundary: %s", got.Status)
+	}
+	if got := normalizedWorkers([]*workers.Worker{worker}, now.Add(time.Nanosecond))[0]; got.Status != workers.StatusUnresponsive {
+		t.Fatalf("worker past timeout: %s", got.Status)
+	}
+	worker.LastHeartbeat = now
+	if got := normalizedWorkers([]*workers.Worker{worker}, now)[0]; got.Status != workers.StatusRunning || got.CurrentJobID != "job" {
+		t.Fatalf("fresh heartbeat did not restore reported state: %+v", got)
+	}
+	worker.LastHeartbeat = time.Time{}
+	if got := normalizedWorkers([]*workers.Worker{nil, worker}, now); len(got) != 1 || got[0].Status != workers.StatusUnresponsive {
+		t.Fatalf("missing heartbeat handling: %+v", got)
+	}
+}
+
+type snapshotWorkerRegistry struct {
+	workers.Registry
+	items []*workers.Worker
+}
+
+func (r snapshotWorkerRegistry) List() []*workers.Worker { return r.items }
+
+func TestStaleWorkersExcludedFromActiveMetrics(t *testing.T) {
+	now := time.Now().UTC()
+	registry := snapshotWorkerRegistry{
+		Registry: workers.NewMemoryRegistry(),
+		items: []*workers.Worker{
+			{ID: "healthy", Status: workers.StatusIdle, LastHeartbeat: now},
+			{ID: "crashed", Status: workers.StatusRunning, CurrentJobID: "old-job", LastHeartbeat: now.Add(-time.Minute)},
+		},
+	}
+	router := NewRouter(Config{
+		Queue: jobs.NewMemoryQueue(2), Store: jobs.NewMemoryStore(), Workers: registry,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics: %s", rec.Body.String())
+	}
+	var response metricsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Workers.Total != 2 || response.Workers.Active != 1 || response.Workers.Running != 0 ||
+		response.Workers.ByStatus[string(workers.StatusUnresponsive)] != 1 {
+		t.Fatalf("unexpected worker metrics: %+v", response.Workers)
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/workers", nil))
+	var listed struct {
+		Workers []*workers.Worker `json:"workers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Workers[1].Status != workers.StatusUnresponsive || listed.Workers[1].CurrentJobID != "" {
+		t.Fatalf("unexpected stale worker response: %+v", listed.Workers[1])
+	}
 }

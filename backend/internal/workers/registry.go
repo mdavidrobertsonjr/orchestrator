@@ -10,9 +10,10 @@ import (
 type Status string
 
 const (
-	StatusIdle    Status = "idle"
-	StatusRunning Status = "running"
-	StatusStopped Status = "stopped"
+	StatusIdle         Status = "idle"
+	StatusRunning      Status = "running"
+	StatusStopped      Status = "stopped"
+	StatusUnresponsive Status = "unresponsive"
 )
 
 var ErrNotFound = errors.New("worker not found")

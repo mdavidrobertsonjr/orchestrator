@@ -300,7 +300,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       postings: metrics?.postings.total ?? postings.length,
       results: results.length,
       workflows: workflows.length,
-      activeWorkers: workers.filter((worker) => worker.status !== "stopped").length
+      activeWorkers: workers.filter((worker) => worker.status === "idle" || worker.status === "running").length
     };
   }, [jobs, metrics?.postings.total, postings, results, workflows, workers]);
 
@@ -624,7 +624,7 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
         <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
           <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
         </Panel>
-        <Panel title="Workers" subtitle={`${workers.length} registered executors`}>
+        <Panel title="Workers" subtitle={`${workers.length} registered executors · unresponsive after 30s without a heartbeat`}>
           <WorkersTable workers={workers} loading={loading} />
         </Panel>
       </section>
@@ -2211,7 +2211,13 @@ function notificationSummary(job: Job): { label: string; detail: string } | null
 }
 
 function WorkerPill({ status }: { status: WorkerStatus }) {
-  return <span className={`status-pill worker-${status}`}>{status}</span>;
+  return <span
+ className={`status-pill worker-${status}`}
+ title={status === "unresponsive"
+  ? "No heartbeat received within 30 seconds. Excluded from active workers."
+  : status === "stopped" ? "Worker shut down normally."
+  : "Last reported status. A missing heartbeat is detected after 30 seconds."}
+ >{status}</span>;
 }
 
 function EmptyState({ label }: { label: string }) {
