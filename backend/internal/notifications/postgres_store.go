@@ -75,24 +75,65 @@ func (s *PostgresStore) Create(params CreateDeliveryParams) (*Delivery, error) {
 	}
 	ctx, cancel := s.context()
 	defer cancel()
-	return scanDelivery(s.db.QueryRowContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if params.JobID != "" {
+		key := deliveryKey(params.JobID, params.Kind, params.Provider, params.Recipients)
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key); err != nil {
+			return nil, err
+		}
+		// Match older delivery records too, so retries after an upgrade reuse them.
+		delivery, err := scanDelivery(tx.QueryRowContext(ctx, `
+ SELECT id, job_id, workflow_id, kind, provider, status, recipients, subject, error, attempts, last_attempt_at, metadata, created_at, updated_at
+ FROM notification_deliveries
+ WHERE job_id = $1 AND kind = $2 AND provider = $3
+ AND COALESCE((SELECT jsonb_agg(value ORDER BY value) FROM jsonb_array_elements_text(recipients)), '[]'::jsonb)
+ = COALESCE((SELECT jsonb_agg(value ORDER BY value) FROM jsonb_array_elements_text($4::jsonb)), '[]'::jsonb)
+ ORDER BY created_at LIMIT 1
+ `, params.JobID, params.Kind, params.Provider, recipients))
+		if err == nil {
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			return delivery, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+	delivery, err := scanDelivery(tx.QueryRowContext(ctx,
+		`
 INSERT INTO notification_deliveries (
 	id, job_id, workflow_id, kind, provider, status, recipients, subject, metadata, created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $9)
 RETURNING id, job_id, workflow_id, kind, provider, status, recipients, subject, error, attempts, last_attempt_at, metadata, created_at, updated_at
 `, newID(), params.JobID, params.WorkflowID, params.Kind, params.Provider, recipients, params.Subject, metadata, now))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return delivery, nil
 }
 
 func (s *PostgresStore) MarkAttempt(id string) (*Delivery, error) {
 	now := time.Now().UTC()
 	ctx, cancel := s.context()
 	defer cancel()
-	return s.scanUpdated(s.db.QueryRowContext(ctx, `
+	delivery, err := scanDelivery(s.db.QueryRowContext(ctx, `
 UPDATE notification_deliveries
 SET status = 'sending', attempts = attempts + 1, error = '', last_attempt_at = $2, updated_at = $2
-WHERE id = $1
+WHERE id = $1 AND status = 'pending'
 RETURNING id, job_id, workflow_id, kind, provider, status, recipients, subject, error, attempts, last_attempt_at, metadata, created_at, updated_at
 `, id, now))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAlreadyAttempted
+	}
+	return delivery, err
 }
 
 func (s *PostgresStore) MarkSucceeded(id string) (*Delivery, error) {

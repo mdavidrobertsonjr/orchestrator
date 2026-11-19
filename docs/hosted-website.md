@@ -185,3 +185,9 @@ approvals require the account owners.
 References: [OpenAI app-server authentication](https://developers.openai.com/codex/app-server#auth-endpoints),
 [Google web OAuth](https://developers.google.com/identity/protocols/oauth2/web-server),
 [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect).
+
+## Email retry recovery
+
+Emails use one delivery record per job, notification kind, provider, and recipient set. Retried jobs reuse existing records, including records created before this behavior was introduced. A recorded successful delivery is skipped.
+
+Each delivery permits one automatic SMTP send attempt. A delivery left in sending state after a crash, or marked failed after an SMTP error, requires operator review before resending. SMTP may accept a message before a connection fails, so automatic resends could duplicate it. Review the delivery history and mail provider logs, then submit a new job if a resend is appropriate. This policy can require manual recovery even when a crash occurred before SMTP accepted the message.

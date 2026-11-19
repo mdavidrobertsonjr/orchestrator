@@ -2,9 +2,11 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"orchestrator/backend/internal/notifications"
 	"strings"
 	"testing"
 
@@ -461,4 +463,47 @@ func containsLog(logs []string, message string) bool {
 		}
 	}
 	return false
+}
+
+func TestTrackedEmailSkipsSucceededDeliveryOnRetry(t *testing.T) {
+	store := notifications.NewMemoryStore()
+	sender := &recordingSender{}
+	executor := NewSimulatedExecutor(testLogger(), nil, nil, sender)
+	executor.SetNotificationStore(store)
+	job := &jobs.Job{ID: "retry-job"}
+	message := email.Message{Recipients: []string{"user@example.com"}, Subject: "report"}
+	for i := 0; i < 2; i++ {
+		if err := executor.sendTrackedEmail(t.Context(), job, sender, message, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sender.messages) != 1 {
+		t.Fatalf("sent %d emails", len(sender.messages))
+	}
+	deliveries, _ := store.List()
+	if len(deliveries) != 1 || deliveries[0].Attempts != 1 {
+		t.Fatalf("unexpected deliveries: %+v", deliveries)
+	}
+}
+
+func TestTrackedEmailBlocksUncertainDelivery(t *testing.T) {
+	store := notifications.NewMemoryStore()
+	sender := &recordingSender{}
+	executor := NewSimulatedExecutor(testLogger(), nil, nil, sender)
+	executor.SetNotificationStore(store)
+	job := &jobs.Job{ID: "crashed-job"}
+	delivery, err := store.Create(notifications.CreateDeliveryParams{JobID: job.ID, Kind: "email", Provider: "smtp", Recipients: []string{"user@example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkAttempt(delivery.ID); err != nil {
+		t.Fatal(err)
+	}
+	message := email.Message{Recipients: []string{"user@example.com"}}
+	if err := executor.sendTrackedEmail(t.Context(), job, sender, message, func(string) {}); !errors.Is(err, notifications.ErrAlreadyAttempted) {
+		t.Fatalf("uncertain delivery: %v", err)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatal("resent an uncertain delivery")
+	}
 }

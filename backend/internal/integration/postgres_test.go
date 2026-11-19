@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -300,5 +301,74 @@ func TestPostgresRejectsStaleWorkerOutcomes(t *testing.T) {
 	}
 	if finished.Status != jobs.StatusSucceeded || finished.Attempts != active.Attempts {
 		t.Fatalf("unexpected final state: %+v", finished)
+	}
+}
+
+func TestPostgresDeliveryRetriesReuseRecordAndAttempt(t *testing.T) {
+	store, err := notifications.NewPostgresStore(t.Context(), databaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	params := notifications.CreateDeliveryParams{JobID: "delivery-regression-" + strconv.FormatInt(time.Now().UnixNano(), 10), Kind: "email", Provider: "smtp", Recipients: []string{"b@example.com", "a@example.com"}}
+	delivery, err := store.Create(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	params.Recipients = []string{"a@example.com", "b@example.com"}
+	repeated, err := store.Create(params)
+	if err != nil || repeated.ID != delivery.ID {
+		t.Fatalf("duplicate record: %+v, %v", repeated, err)
+	}
+	if _, err := store.MarkAttempt(delivery.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkAttempt(delivery.ID); !errors.Is(err, notifications.ErrAlreadyAttempted) {
+		t.Fatalf("duplicate attempt: %v", err)
+	}
+	if _, err := store.MarkSucceeded(delivery.ID); err != nil {
+		t.Fatal(err)
+	}
+	repeated, err = store.Create(params)
+	if err != nil || repeated.Status != "succeeded" {
+		t.Fatalf("successful retry: %+v, %v", repeated, err)
+	}
+}
+
+func TestPostgresConcurrentEmailAttempts(t *testing.T) {
+	store, err := notifications.NewPostgresStore(t.Context(), databaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	params := notifications.CreateDeliveryParams{JobID: "concurrent-delivery-" + strconv.FormatInt(time.Now().UnixNano(), 10), Kind: "email", Provider: "smtp", Recipients: []string{"user@example.com"}}
+	var wg sync.WaitGroup
+	successes := make(chan string, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			delivery, err := store.Create(params)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if _, err := store.MarkAttempt(delivery.ID); err == nil {
+				successes <- delivery.ID
+			} else if !errors.Is(err, notifications.ErrAlreadyAttempted) {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	close(successes)
+	if len(successes) != 1 {
+		t.Fatalf("allowed %d concurrent sends", len(successes))
 	}
 }

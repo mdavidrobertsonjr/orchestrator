@@ -2,12 +2,16 @@ package notifications
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"sync"
 	"time"
 )
+
+var ErrAlreadyAttempted = errors.New("email delivery already attempted; review delivery before resending")
 
 var ErrNotFound = errors.New("notification delivery not found")
 
@@ -29,6 +33,16 @@ func NewMemoryStore() *MemoryStore {
 }
 
 func (s *MemoryStore) Create(params CreateDeliveryParams) (*Delivery, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if params.JobID != "" {
+		key := deliveryKey(params.JobID, params.Kind, params.Provider, params.Recipients)
+		for _, existing := range s.deliveries {
+			if deliveryKey(existing.JobID, existing.Kind, existing.Provider, existing.Recipients) == key {
+				return cloneDelivery(existing), nil
+			}
+		}
+	}
 	now := time.Now().UTC()
 	delivery := &Delivery{
 		ID:         newID(),
@@ -43,19 +57,26 @@ func (s *MemoryStore) Create(params CreateDeliveryParams) (*Delivery, error) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.deliveries[delivery.ID] = delivery
 	return cloneDelivery(delivery), nil
 }
 
 func (s *MemoryStore) MarkAttempt(id string) (*Delivery, error) {
-	return s.update(id, func(delivery *Delivery, now time.Time) {
-		delivery.Status = "sending"
-		delivery.Attempts++
-		delivery.Error = ""
-		delivery.LastAttempt = &now
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delivery := s.deliveries[id]
+	if delivery == nil {
+		return nil, ErrNotFound
+	}
+	if delivery.Status != "pending" {
+		return nil, ErrAlreadyAttempted
+	}
+	now := time.Now().UTC()
+	delivery.Status = "sending"
+	delivery.Attempts++
+	delivery.LastAttempt = &now
+	delivery.UpdatedAt = now
+	return cloneDelivery(delivery), nil
 }
 
 func (s *MemoryStore) MarkSucceeded(id string) (*Delivery, error) {
@@ -129,4 +150,14 @@ func newID() string {
 		return hex.EncodeToString([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// deliveryKey identifies one logical email per job, kind, provider and recipient set.
+// A deliberate resend uses a new job.
+func deliveryKey(jobID, kind, provider string, recipients []string) string {
+	sorted := append([]string(nil), recipients...)
+	sort.Strings(sorted)
+	data, _ := json.Marshal([]any{jobID, kind, provider, sorted})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

@@ -589,6 +589,10 @@ func (e *SimulatedExecutor) sendTrackedEmail(ctx context.Context, job *jobs.Job,
 		if err != nil {
 			return err
 		}
+		if delivery.Status == "succeeded" {
+			logf("email already delivered; skipping repeat send")
+			return nil
+		}
 		deliveryID = delivery.ID
 		if _, err := e.notifications.MarkAttempt(deliveryID); err != nil {
 			return err
