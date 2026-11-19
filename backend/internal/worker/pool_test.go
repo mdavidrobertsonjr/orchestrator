@@ -303,3 +303,67 @@ func hasLog(job *jobs.Job, message string) bool {
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+type leaseTestExecutor func(context.Context, *jobs.Job, func(string)) error
+
+func (f leaseTestExecutor) Execute(ctx context.Context, job *jobs.Job, logf func(string)) error {
+	return f(ctx, job, logf)
+}
+
+type lostLeaseStore struct{ jobs.Store }
+
+func (s lostLeaseStore) RenewLease(context.Context, *jobs.Job, time.Duration) error {
+	return jobs.ErrLeaseLost
+}
+
+func TestPoolRenewsLeaseForLongJob(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	job, err := store.Create(jobs.CreateJobParams{Name: "long job", Type: "demo.sleep", MaxAttempts: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := jobs.NewStoreQueue(store, time.Millisecond)
+	executor := leaseTestExecutor(func(ctx context.Context, _ *jobs.Job, _ func(string)) error {
+		select {
+		case <-time.After(600 * time.Millisecond):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	pool := NewPool(PoolConfig{WorkerCount: 2, LeaseDuration: 150 * time.Millisecond, LeaseSweepInterval: 10 * time.Millisecond}, queue, store, executor, workers.NewMemoryRegistry(), testLogger())
+	pool.Start(ctx)
+	defer func() { cancel(); pool.Wait() }()
+	finished := waitForJobStatus(t, store, job.ID, jobs.StatusSucceeded)
+	if finished.Attempts != 1 {
+		t.Fatalf("job executed %d times", finished.Attempts)
+	}
+}
+
+func TestPoolCancelsExecutionWhenLeaseIsLost(t *testing.T) {
+	store := jobs.NewMemoryStore()
+	job, err := store.Create(jobs.CreateJobParams{Name: "lost lease", Type: "demo.sleep"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.MarkRunningWithLease(job.ID, "worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled := false
+	executor := leaseTestExecutor(func(ctx context.Context, _ *jobs.Job, _ func(string)) error {
+		<-ctx.Done()
+		canceled = true
+		return ctx.Err()
+	})
+	pool := NewPool(PoolConfig{LeaseDuration: 30 * time.Millisecond}, jobs.NewMemoryQueue(1), lostLeaseStore{store}, executor, workers.NewMemoryRegistry(), testLogger())
+	pool.executeClaimed(t.Context(), testLogger(), claim)
+	if !canceled {
+		t.Fatal("execution was not canceled")
+	}
+	current, _ := store.Get(job.ID)
+	if current.Status != jobs.StatusRunning {
+		t.Fatalf("lost worker changed state to %s", current.Status)
+	}
+}

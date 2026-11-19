@@ -195,7 +195,25 @@ func (p *Pool) executeClaimed(ctx context.Context, logger *slog.Logger, job *job
 		jl.Info(message)
 	}
 
-	if err := p.executor.Execute(ctx, job, logf); err != nil {
+	executionCtx, cancel := context.WithCancel(ctx)
+	renewalDone := make(chan error, 1)
+	go func() {
+		err := p.renewJobLease(executionCtx, job)
+		if err != nil {
+			cancel()
+		}
+		renewalDone <- err
+	}()
+	executionErr := p.executor.Execute(executionCtx, job, logf)
+	cancel()
+	if err := <-renewalDone; err != nil {
+		jl.Warn("job execution stopped after lease renewal failed", "error", err)
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err := executionErr; err != nil {
 		p.handleFailure(ctx, jl, job, err)
 		return
 	}
@@ -206,6 +224,27 @@ func (p *Pool) executeClaimed(ctx context.Context, logger *slog.Logger, job *job
 	}
 	p.markRunStatus(job.ID, string(jobs.StatusSucceeded), jl)
 	jl.Info("job execution succeeded")
+}
+
+func (p *Pool) renewJobLease(ctx context.Context, job *jobs.Job) error {
+	ticker := time.NewTicker(p.config.LeaseDuration / 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			renewalCtx, cancel := context.WithTimeout(ctx, p.config.LeaseDuration/3)
+			err := p.store.RenewLease(renewalCtx, job, p.config.LeaseDuration)
+			cancel()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (p *Pool) handleFailure(ctx context.Context, logger *slog.Logger, job *jobs.Job, execErr error) {

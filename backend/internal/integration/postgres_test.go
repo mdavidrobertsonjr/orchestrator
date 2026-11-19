@@ -288,6 +288,12 @@ func TestPostgresRejectsStaleWorkerOutcomes(t *testing.T) {
 			t.Fatalf("stale %s outcome: %v", outcome, err)
 		}
 	}
+	if err := store.RenewLease(ctx, stale, time.Minute); !errors.Is(err, jobs.ErrLeaseLost) {
+		t.Fatalf("stale lease renewal: %v", err)
+	}
+	if err := store.RenewLease(ctx, active, time.Minute); err != nil {
+		t.Fatalf("active lease renewal: %v", err)
+	}
 	finished, err := store.FinishAttempt(active, jobs.StatusSucceeded, "", "active outcome")
 	if err != nil {
 		t.Fatal(err)

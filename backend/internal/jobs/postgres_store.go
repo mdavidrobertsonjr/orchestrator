@@ -290,6 +290,25 @@ RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, me
 	})
 }
 
+func (s *PostgresStore) RenewLease(ctx context.Context, claim *Job, duration time.Duration) error {
+	result, err := s.db.ExecContext(ctx, `
+ UPDATE jobs SET lease_until = clock_timestamp() + $1 * interval '1 second'
+ WHERE id = $2 AND status = $3 AND lease_owner = $4 AND attempts = $5
+ AND started_at = $6 AND lease_until > clock_timestamp()
+ `, duration.Seconds(), claim.ID, StatusRunning, claim.LeaseOwner, claim.Attempts, claim.StartedAt)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
 func (s *PostgresStore) FinishAttempt(claim *Job, status Status, errMessage, logMessage string) (*Job, error) {
 	now := time.Now().UTC()
 	return s.transition(claim.ID, logMessage, func(ctx context.Context, tx *sql.Tx) (*Job, error) {

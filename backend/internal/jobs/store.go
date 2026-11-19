@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -20,6 +21,7 @@ type Store interface {
 	ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error)
 	MarkRunning(id string) (*Job, error)
 	MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error)
+	RenewLease(ctx context.Context, claim *Job, duration time.Duration) error
 	FinishAttempt(claim *Job, status Status, errMessage, logMessage string) (*Job, error)
 	MarkQueued(id string, message string) (*Job, error)
 	MarkSucceeded(id string, message string) (*Job, error)
@@ -178,6 +180,24 @@ func (s *MemoryStore) MarkRunningWithLease(id string, workerID string, leaseUnti
 	job.Logs = append(job.Logs, LogEntry{Time: now, Message: "job started"})
 
 	return cloneJob(job), nil
+}
+
+func (s *MemoryStore) RenewLease(ctx context.Context, claim *Job, duration time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	job := s.jobs[claim.ID]
+	if job == nil || job.Status != StatusRunning || job.LeaseOwner != claim.LeaseOwner ||
+		job.Attempts != claim.Attempts || job.StartedAt == nil || claim.StartedAt == nil ||
+		!job.StartedAt.Equal(*claim.StartedAt) || job.LeaseUntil == nil || !job.LeaseUntil.After(now) {
+		return ErrLeaseLost
+	}
+	until := now.Add(duration)
+	job.LeaseUntil = &until
+	return nil
 }
 
 // FinishAttempt applies an outcome only while the original claim is active.
