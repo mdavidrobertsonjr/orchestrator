@@ -21,7 +21,7 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 
 ## Product Tour
 
-[Watch the 64-second product demo](docs/demo/orchestrator-demo.mp4) to see live filtering, natural-language workflow creation, and workflow lifecycle controls.
+[Watch the 83-second product overview](docs/demo/orchestrator-demo.mp4) to see posting filters, application tracking, monitor runs, pause/resume controls, schedule editing, and execution logs. The recording uses sample postings on the current local website, with a visible cursor and click indicators.
 
 Try commands such as `Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour.` Equivalent requests reuse the existing workflow instead of creating duplicates.
 
