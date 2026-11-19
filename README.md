@@ -21,7 +21,7 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 
 ## Product Tour
 
-[Watch the 83-second product overview](docs/demo/orchestrator-demo.mp4) to see posting filters, application tracking, monitor runs, pause/resume controls, schedule editing, and execution logs. The recording uses sample postings on the current local website, with a visible cursor and click indicators.
+[Download the 83-second product overview (MP4)](https://raw.githubusercontent.com/mdavidrobertsonjr/orchestrator/main/docs/demo/orchestrator-demo.mp4) to see posting filters, application tracking, monitor runs, pause/resume controls, schedule editing, and execution logs. The recording uses sample postings on the current local website, with a visible cursor and click indicators.
 
 Try commands such as `Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour.` Equivalent requests reuse the existing workflow instead of creating duplicates.
 
@@ -37,11 +37,11 @@ The screenshots use local sample postings.
 
 ### Worker crash recovery
 
-[Watch the 35-second worker crash recovery demo](docs/demo/worker-crash-recovery.mp4).
+[Download the 35-second worker crash recovery demo (MP4)](https://raw.githubusercontent.com/mdavidrobertsonjr/orchestrator/main/docs/demo/worker-crash-recovery.mp4).
 
 Worker A runs a sample job while worker B waits idle. A real process-termination command kills A, then B automatically claims attempt 2 after the job lease expires and finishes the job. The dashboard later marks A **Unresponsive** and shows **1 of 2 workers active**.
 
-[![Worker crash recovery showing the termination command, completed retry, unresponsive worker A, and one active worker](docs/screenshots/worker-crash-recovery.png)](docs/demo/worker-crash-recovery.mp4)
+[![Worker crash recovery showing the termination command, completed retry, unresponsive worker A, and one active worker](docs/screenshots/worker-crash-recovery.png)](https://raw.githubusercontent.com/mdavidrobertsonjr/orchestrator/main/docs/demo/worker-crash-recovery.mp4)
 
 The recording shows the local website, PostgreSQL, and actual worker processes. It uses a timed sample workload and a shortened 3-second job lease. Part of the wait for the 30-second heartbeat timeout is labeled **4× speed**.
 
