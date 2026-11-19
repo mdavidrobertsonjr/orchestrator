@@ -341,28 +341,64 @@ h2 {
   color: #b42318;
 }
 
-.dashboard-grid {
+.runtime-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+}
+
+.runtime-execution-grid,
+.runtime-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
-}
-
-.compact-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 1fr);
-  margin-bottom: 18px;
-}
-
-.overview-columns {
-  display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
 }
 
-.overview-column {
-  display: grid;
-  gap: 18px;
+.runtime-job-list {
   min-width: 0;
+}
+
+.runtime-job-list .job-secondary-column {
+  display: none;
+}
+
+.runtime-job-list th,
+.runtime-job-list td {
+  padding: 12px 10px;
+}
+
+.runtime-job-list td:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.runtime-job-list td:first-child strong {
+  max-width: 230px;
+}
+
+.runtime-metrics .metrics-panel {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  padding: 14px;
+}
+
+.runtime-metrics .metric-row {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+}
+
+.runtime-secondary > summary {
+  cursor: pointer;
+  color: #405060;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.runtime-secondary[open] > summary {
+  margin-bottom: 18px;
 }
 
 .split-view {
@@ -1361,10 +1397,10 @@ textarea {
     flex: 0 0 156px;
   }
 
-  .dashboard-grid,
   .split-view,
   .command-grid,
-  .overview-columns {
+  .runtime-execution-grid,
+  .runtime-diagnostics-grid {
     grid-template-columns: 1fr;
   }
 

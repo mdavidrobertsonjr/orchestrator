@@ -616,50 +616,54 @@ export function App({ aiConnected }: { aiConnected?: boolean }) {
       />
       <details className="runtime-details">
         <summary>Runtime details <span>Queues, workers, execution history, and diagnostics</span></summary>
-      <SummaryGrid summary={summary} />
-      <section className="dashboard-grid compact-grid">
-        <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
-          <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
-        </Panel>
-        <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
-          <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
-        </Panel>
+      <div className="runtime-layout">
         <Panel title="Workers" subtitle={`${workers.length} registered executors · unresponsive after 30s without a heartbeat`}>
           <WorkersTable workers={workers} loading={loading} />
         </Panel>
-      </section>
-      <section className="overview-columns">
-        <div className="overview-column">
-          <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
-            <JobsTable
-              rows={jobRows.slice(0, 5)}
-              notifications={notifications}
-              selectedJobID={selectedJob?.id}
-              onSelect={setSelectedJobID}
-              onCancel={(job) => void handleCancelJob(job)}
-              onRetry={(job) => void handleRetryJob(job)}
-              loading={loading}
-            />
-          </Panel>
+        <section className="runtime-execution-grid">
+          <div className="runtime-job-list">
+            <Panel title="Recent Jobs" subtitle={jobRowsSubtitle(jobRows.length, jobs.length)}>
+              <JobsTable
+                rows={jobRows.slice(0, 5)}
+                notifications={notifications}
+                selectedJobID={selectedJob?.id}
+                onSelect={setSelectedJobID}
+                onCancel={(job) => void handleCancelJob(job)}
+                onRetry={(job) => void handleRetryJob(job)}
+                loading={loading}
+              />
+            </Panel>
+          </div>
           <Panel title="Job Detail" subtitle={selectedJob ? selectedJob.id.slice(0, 12) : "No job selected"}>
             {selectedJob ? <JobDetail job={selectedJob} results={selectedJobResults} /> : <EmptyState label="No jobs yet" />}
           </Panel>
-        </div>
-        <div className="overview-column">
-          <Panel title="Queue" subtitle="In-memory capacity">
-            <QueueMeter queue={queue} fill={queueFill} />
-          </Panel>
-          <Panel
-            title="Runtime Metrics"
-            subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}
-          >
+        </section>
+        <div className="runtime-metrics">
+          <Panel title="Runtime Metrics" subtitle={metrics ? `Generated ${relativeTime(metrics.generated_at)}` : "Waiting for metrics"}>
             <RuntimeMetricsPanel metrics={metrics} loading={loading} />
           </Panel>
-          <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
-            <ResultsTable results={results.slice(0, 4)} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
-          </Panel>
         </div>
-      </section>
+        <section className="runtime-diagnostics-grid">
+          <Panel title="Operational Alerts" subtitle={`${metrics?.alerts?.length ?? 0} active signals`}>
+            <OperationalAlertsPanel alerts={metrics?.alerts ?? []} loading={loading} />
+          </Panel>
+          <Panel title="Source Health" subtitle={`${sourceHealthResults.length} recent source events`}>
+            <SourceHealthPanel results={sourceHealthResults} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
+          </Panel>
+        </section>
+        <details className="runtime-secondary">
+          <summary>Queue &amp; recent results</summary>
+          <SummaryGrid summary={summary} />
+          <section className="runtime-diagnostics-grid">
+            <Panel title="Queue" subtitle="Queue capacity and utilization">
+              <QueueMeter queue={queue} fill={queueFill} />
+            </Panel>
+            <Panel title="Recent Results" subtitle={`${results.length} structured outputs`}>
+              <ResultsTable results={results.slice(0, 4)} jobs={jobs} loading={loading} onSelectJob={setSelectedJobID} />
+            </Panel>
+          </section>
+        </details>
+      </div>
       </details>
     </>
   );
@@ -1396,11 +1400,11 @@ function JobsTable({
         <thead>
           <tr>
             <th>Name</th>
-            <th>Type</th>
+            <th className="job-secondary-column">Type</th>
             <th>Status</th>
-            <th>Messages</th>
+            <th className="job-secondary-column">Messages</th>
             <th>Attempts</th>
-            <th>Updated</th>
+            <th className="job-secondary-column">Updated</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -1418,17 +1422,17 @@ function JobsTable({
                   {executionCount > 1 ? ` · ${executionCount} executions` : ""}
                 </span>
               </td>
-              <td>{job.type}</td>
+              <td className="job-secondary-column">{job.type}</td>
               <td>
                 <StatusPill status={job.status} />
               </td>
-              <td>
+              <td className="job-secondary-column">
                 <MessageSummary job={job} delivery={latestNotification(job, notifications)} />
               </td>
               <td>
                 {job.attempts}/{job.max_attempts}
               </td>
-              <td>{relativeTime(job.updated_at)}</td>
+              <td className="job-secondary-column">{relativeTime(job.updated_at)}</td>
               <td>
                 {job.status === "queued" || isRetryableJob(job) ? (
                   <div className="table-actions no-wrap">
