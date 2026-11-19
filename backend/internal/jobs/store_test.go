@@ -274,3 +274,28 @@ func hasStoreLog(job *Job, message string) bool {
 	}
 	return false
 }
+
+func TestMemoryStoreRejectsEarlierClaimFromSameWorker(t *testing.T) {
+	store := NewMemoryStore()
+	job, err := store.Create(CreateJobParams{Name: "lease regression", Type: "echo", MaxAttempts: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := store.MarkRunningWithLease(job.ID, "worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RequeueExpiredLeases(original.LeaseUntil.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.MarkRunningWithLease(job.ID, "worker", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishAttempt(original, StatusSucceeded, "", "stale success"); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("earlier claim from same worker: %v", err)
+	}
+	if _, err := store.FinishAttempt(current, StatusSucceeded, "", "current success"); err != nil {
+		t.Fatal(err)
+	}
+}

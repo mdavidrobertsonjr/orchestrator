@@ -140,7 +140,7 @@ func (p *Pool) runWorker(ctx context.Context, workerID int) {
 }
 
 func (p *Pool) claimAndExecute(ctx context.Context, logger *slog.Logger, workerID string, queue jobs.ClaimQueue) bool {
-	job, err := queue.Claim(ctx, workerID, time.Now().UTC().Add(p.config.LeaseDuration))
+	job, err := queue.Claim(ctx, workerID, p.config.LeaseDuration)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return false
@@ -200,7 +200,7 @@ func (p *Pool) executeClaimed(ctx context.Context, logger *slog.Logger, job *job
 		return
 	}
 
-	if _, err := p.store.MarkSucceeded(job.ID, "job succeeded"); err != nil {
+	if _, err := p.store.FinishAttempt(job, jobs.StatusSucceeded, "", "job succeeded"); err != nil {
 		jl.Error("failed to mark job succeeded", "error", err)
 		return
 	}
@@ -210,24 +210,24 @@ func (p *Pool) executeClaimed(ctx context.Context, logger *slog.Logger, job *job
 
 func (p *Pool) handleFailure(ctx context.Context, logger *slog.Logger, job *jobs.Job, execErr error) {
 	if job.Attempts < job.MaxAttempts {
-		if _, err := p.store.MarkQueued(job.ID, "job attempt failed; requeueing: "+execErr.Error()); err != nil {
+		if _, err := p.store.FinishAttempt(job, jobs.StatusQueued, "", "job attempt failed; requeueing: "+execErr.Error()); err != nil {
 			logger.Error("failed to mark retryable job queued", "error", err)
-			_, _ = p.store.MarkFailed(job.ID, execErr.Error())
-			p.markRunStatus(job.ID, string(jobs.StatusFailed), logger)
 			return
 		}
-		if err := p.queue.Enqueue(ctx, job.ID); err != nil {
-			logger.Error("failed to requeue job", "error", err)
-			_, _ = p.store.MarkFailed(job.ID, execErr.Error())
-			p.markRunStatus(job.ID, string(jobs.StatusFailed), logger)
-			return
+		if _, claimable := p.queue.(jobs.ClaimQueue); !claimable {
+			if err := p.queue.Enqueue(ctx, job.ID); err != nil {
+				logger.Error("failed to requeue job", "error", err)
+				_, _ = p.store.MarkFailed(job.ID, execErr.Error())
+				p.markRunStatus(job.ID, string(jobs.StatusFailed), logger)
+				return
+			}
 		}
 		p.markRunStatus(job.ID, string(jobs.StatusQueued), logger)
 		logger.Warn("job execution failed; retry queued", "error", execErr)
 		return
 	}
 
-	if _, err := p.store.MarkDeadLetter(job.ID, execErr.Error()); err != nil {
+	if _, err := p.store.FinishAttempt(job, jobs.StatusDeadLetter, execErr.Error(), "job moved to dead letter: "+execErr.Error()); err != nil {
 		logger.Error("failed to mark job failed", "error", err)
 		return
 	}

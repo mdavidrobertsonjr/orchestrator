@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"testing"
@@ -249,4 +250,49 @@ func TestPostgresSchedulerAdvisoryLock(t *testing.T) {
 		t.Fatal("expected second lock after release")
 	}
 	unlockSecond()
+}
+
+func TestPostgresRejectsStaleWorkerOutcomes(t *testing.T) {
+	ctx := context.Background()
+	store, err := jobs.NewPostgresStore(ctx, databaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	job, err := store.Create(jobs.CreateJobParams{
+		Name: "lease regression", Type: "echo", MaxAttempts: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := store.MarkRunningWithLease(job.ID, "worker-a", time.Now().Add(-time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishAttempt(stale, jobs.StatusSucceeded, "", "expired"); !errors.Is(err, jobs.ErrLeaseLost) {
+		t.Fatalf("expired attempt before reclaim: %v", err)
+	}
+	if _, err := store.RequeueExpiredLeases(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.MarkRunningWithLease(job.ID, "worker-b", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range []jobs.Status{jobs.StatusSucceeded, jobs.StatusQueued, jobs.StatusDeadLetter} {
+		if _, err := store.FinishAttempt(stale, outcome, "", "stale outcome"); !errors.Is(err, jobs.ErrLeaseLost) {
+			t.Fatalf("stale %s outcome: %v", outcome, err)
+		}
+	}
+	finished, err := store.FinishAttempt(active, jobs.StatusSucceeded, "", "active outcome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != jobs.StatusSucceeded || finished.Attempts != active.Attempts {
+		t.Fatalf("unexpected final state: %+v", finished)
+	}
 }

@@ -290,6 +290,25 @@ RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, me
 	})
 }
 
+func (s *PostgresStore) FinishAttempt(claim *Job, status Status, errMessage, logMessage string) (*Job, error) {
+	now := time.Now().UTC()
+	return s.transition(claim.ID, logMessage, func(ctx context.Context, tx *sql.Tx) (*Job, error) {
+		job, err := scanJob(tx.QueryRowContext(ctx, `
+UPDATE jobs
+SET status = $2, error = $3, updated_at = $4,
+    finished_at = CASE WHEN $2 = $5 THEN NULL ELSE $4 END,
+    lease_owner = '', lease_until = NULL
+WHERE id = $1 AND status = $6 AND lease_owner = $7 AND attempts = $8
+  AND started_at = $9 AND lease_until > clock_timestamp()
+RETURNING id, name, job_type, status, payload, attempts, max_attempts, error, metadata, created_at, updated_at, started_at, finished_at, lease_owner, lease_until
+`, claim.ID, status, errMessage, now, StatusQueued, StatusRunning, claim.LeaseOwner, claim.Attempts, claim.StartedAt))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseLost
+		}
+		return job, err
+	})
+}
+
 func (s *PostgresStore) MarkSucceeded(id string, message string) (*Job, error) {
 	return s.finish(id, StatusSucceeded, "", message)
 }

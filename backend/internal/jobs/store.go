@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var ErrLeaseLost = errors.New("job lease lost")
+
 var ErrNotFound = errors.New("job not found")
 
 type Store interface {
@@ -18,6 +20,7 @@ type Store interface {
 	ClaimQueued(workerID string, leaseUntil time.Time) (*Job, error)
 	MarkRunning(id string) (*Job, error)
 	MarkRunningWithLease(id string, workerID string, leaseUntil time.Time) (*Job, error)
+	FinishAttempt(claim *Job, status Status, errMessage, logMessage string) (*Job, error)
 	MarkQueued(id string, message string) (*Job, error)
 	MarkSucceeded(id string, message string) (*Job, error)
 	MarkFailed(id string, errMessage string) (*Job, error)
@@ -174,6 +177,31 @@ func (s *MemoryStore) MarkRunningWithLease(id string, workerID string, leaseUnti
 	}
 	job.Logs = append(job.Logs, LogEntry{Time: now, Message: "job started"})
 
+	return cloneJob(job), nil
+}
+
+// FinishAttempt applies an outcome only while the original claim is active.
+func (s *MemoryStore) FinishAttempt(claim *Job, status Status, errMessage, logMessage string) (*Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	job := s.jobs[claim.ID]
+	if job == nil || job.Status != StatusRunning || job.LeaseOwner != claim.LeaseOwner ||
+		job.Attempts != claim.Attempts || job.StartedAt == nil || claim.StartedAt == nil ||
+		!job.StartedAt.Equal(*claim.StartedAt) || job.LeaseUntil == nil || !job.LeaseUntil.After(now) {
+		return nil, ErrLeaseLost
+	}
+	job.Status = status
+	job.Error = errMessage
+	job.UpdatedAt = now
+	job.FinishedAt = nil
+	if status != StatusQueued {
+		job.FinishedAt = &now
+	}
+	job.LeaseOwner = ""
+	job.LeaseUntil = nil
+	job.Logs = append(job.Logs, LogEntry{Time: now, Message: logMessage})
 	return cloneJob(job), nil
 }
 

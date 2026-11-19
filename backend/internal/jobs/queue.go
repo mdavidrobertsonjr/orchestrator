@@ -17,7 +17,7 @@ type Queue interface {
 
 type ClaimQueue interface {
 	Queue
-	Claim(ctx context.Context, workerID string, leaseUntil time.Time) (*Job, error)
+	Claim(ctx context.Context, workerID string, leaseDuration time.Duration) (*Job, error)
 }
 
 type MemoryQueue struct {
@@ -81,9 +81,9 @@ func (q *StoreQueue) Enqueue(ctx context.Context, jobID string) error {
 	return ctx.Err()
 }
 
-func (q *StoreQueue) Claim(ctx context.Context, workerID string, leaseUntil time.Time) (*Job, error) {
+func (q *StoreQueue) Claim(ctx context.Context, workerID string, leaseDuration time.Duration) (*Job, error) {
 	for {
-		job, err := q.store.ClaimQueued(workerID, leaseUntil)
+		job, err := q.store.ClaimQueued(workerID, time.Now().UTC().Add(leaseDuration))
 		if err == nil {
 			return job, nil
 		}
