@@ -6,12 +6,12 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 
 ## Highlights
 
-- Durable Go control plane with a job state machine, worker leases, retry/dead-letter behavior, and Postgres-backed queue mode.
+- Durable Go control plane with a job state machine, renewable worker leases, rejection of stale worker outcomes, retry/dead-letter behavior, and Postgres-backed queue mode.
 - Recurring workflow scheduler with idempotent dispatch records and manual run support.
 - Real product workflow for monitoring Greenhouse, Lever, Ashby, SmartRecruiters, Workday, and custom job feeds.
 - Automatic ATS adapter detection from supported careers-board URLs, alongside explicit source configuration.
 - Per-source monitor health: failed sources are reported as warnings when other sources return successfully, and transient failures can retry the job.
-- Live target-company monitoring for OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
+- Seed scripts for recurring monitors at OpenAI, Palantir, Anduril, SpaceX/Starlink, Notion, and other engineering-focused companies.
 - React operations dashboard for queue health, jobs, workflow runs, workers, postings, application tracking, results, logs, metrics, and alerts.
 - Monitor views show configured companies, schedules, recent runs, source warnings, and recovery state; matched postings can be tracked as applied.
 - Natural-language job/workflow planning through a local `OPENAI_API_KEY` or each hosted user's connected ChatGPT/Codex account.
@@ -25,13 +25,15 @@ This repository runs locally, on your own server, or as the hosted pilot at [job
 
 Try commands such as `Monitor new-grad software engineering roles at OpenAI, Palantir, Anduril, and SpaceX every hour.` Equivalent requests reuse the existing workflow instead of creating duplicates.
 
-| Runtime overview | Matched job postings |
+| Matches overview | Matched job postings |
 | --- | --- |
-| ![Orchestrator dashboard showing healthy runtime metrics, alerts, source health, and recent jobs](docs/screenshots/dashboard-overview.png) | ![Job postings dashboard with company, metro-area, source, and score filters](docs/screenshots/job-postings.png) |
+| ![Current matches overview showing active monitors, scheduled checks, and sample role matches](docs/screenshots/dashboard-overview.png) | ![Job postings dashboard with company, metro-area, source, and score filters](docs/screenshots/job-postings.png) |
 
-| Natural-language commands | Scheduled workflows |
+| Commands and schedule setup | Monitor runs |
 | --- | --- |
-| ![Natural-language command interface and structured recurring-monitor configuration](docs/screenshots/natural-language-commands.png) | ![Scheduled job-monitor workflows with status, run history, and controls](docs/screenshots/scheduled-workflows.png) |
+| ![Natural-language command interface and structured recurring-monitor configuration](docs/screenshots/natural-language-commands.png) | ![Monitor schedules, manual run controls, results, and execution logs](docs/screenshots/scheduled-workflows.png) |
+
+The screenshots use local sample postings.
 
 ### Worker crash recovery
 
@@ -62,13 +64,15 @@ This starts a disposable PostgreSQL container, runs both workers, terminates A, 
 
 ## Quick Start
 
-This project runs locally by default. Clone it, install frontend dependencies, then run either the in-memory development stack or the Postgres-backed stack.
+Use Go 1.25 or newer and Node.js 22.12 or newer with npm. The Makefile and helper scripts use GNU Make and Bash. Docker with the Compose plugin is required for the containerized stack and Postgres helper commands.
+
+Clone the repository and install the locked frontend dependencies. Use Postgres for durable state across restarts.
 
 Install frontend dependencies once:
 
 ```bash
 cd frontend
-npm install
+npm ci
 cd ..
 ```
 
@@ -96,13 +100,13 @@ Open:
 http://localhost:8080
 ```
 
-For the production-like distributed stack used in the project demo:
+For a containerized API, standalone worker, and Postgres stack:
 
 ```bash
 make compose-app
 ```
 
-This starts the API, a standalone worker, and Postgres. Run `make frontend` in a second terminal for the live Vite dashboard at `http://localhost:5173`.
+The API serves the built dashboard at `http://localhost:8080`. For frontend development with Vite hot reload, optionally run `make frontend` in a second terminal and open `http://localhost:5173`.
 
 ## Common Commands
 
@@ -130,6 +134,7 @@ building the frontend, run:
 
 ```bash
 cd frontend
+npx playwright install --with-deps chromium
 npm run test:hosted
 ```
 
@@ -137,7 +142,7 @@ For a small VPS or cloud VM deployment, see [Deploy On A Small VPS](docs/deploy-
 
 ## Configuration
 
-For local development, copy `.env.example` to `.env` and fill in only the values you need. `make dev`, `make backend`, and `make website` load `.env` automatically.
+For local development, copy `.env.example` to `.env` and fill in only the values you need. Clear `ORCH_SMTP_HOST` to use simulated email delivery while trying the app locally. `make dev`, `make backend`, and `make website` load `.env` automatically.
 
 Authentication:
 
@@ -150,7 +155,7 @@ ORCH_AUTH_TOKEN=replace-with-a-long-random-token make website-postgres
 Scoped API keys are also supported:
 
 ```bash
-ORCH_API_KEYS='dashboard:long-random-token:read+write+metrics;prometheus:metrics-token:metrics'
+ORCH_API_KEYS='dashboard:long-random-token:read+write+metrics;prometheus:metrics-token:metrics' make website-postgres
 ```
 
 Supported scopes are `read`, `write`, `metrics`, and `admin`. `ORCH_AUTH_TOKEN` remains supported and is treated as an admin key.
@@ -181,6 +186,8 @@ make website
 ```
 
 If `ORCH_SMTP_HOST` is not set, email delivery is simulated for local development.
+
+Retries reuse the same logical email delivery record and skip recorded successes. A delivery interrupted during sending, or followed by an SMTP error, requires operator review before resending because the provider may already have accepted the message. See [email retry recovery](docs/hosted-website.md#email-retry-recovery) for recovery instructions.
 
 Hosted deployments use `ORCH_AUTH_SMTP_*` for account verification and password
 recovery, and the same authenticated sender for monitor alerts and digests. The SMTP
@@ -239,6 +246,10 @@ Workers claim jobs with leases
 Typed executors store results and send notifications
 ```
 
+Workers renew their job lease while executing and can update an attempt's outcome only while they still own its live lease. A failed renewal cancels the execution context. The default lease lasts two minutes and expired leases are checked every 15 seconds. The recovery demo shortens those timings for the recording.
+
+Worker heartbeats are separate from job leases. After 30 seconds without a heartbeat, the dashboard marks a worker **Unresponsive**, clears its displayed assignment, and excludes it from active counts. A normal shutdown is displayed as **Stopped**. Job recovery follows the lease deadline and sweep interval.
+
 For deeper architecture notes, see [System Design](docs/system-design.md). For project positioning and future direction, see [Project Framing](docs/project-framing.md).
 
 ## API And Dashboard
@@ -248,7 +259,7 @@ Representative endpoints:
 - `POST /v1/commands/natural`: create or reuse an immediate job or recurring workflow from English.
 - `POST /v1/jobs`: submit an immediate job.
 - `POST /v1/workflows`: create a recurring workflow.
-- `PATCH /v1/workflows/{id}`: enable or pause a workflow.
+- `PATCH /v1/workflows/{id}`: edit the schedule, payload, or retry limit, or enable or pause a workflow.
 - `DELETE /v1/workflows/{id}`: safely delete a paused workflow.
 - `POST /v1/workflows/{id}/run`: manually trigger a workflow.
 - `PATCH /v1/postings/{id}`: mark or unmark a posting as applied.
