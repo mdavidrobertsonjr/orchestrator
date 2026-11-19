@@ -33,6 +33,24 @@ Try commands such as `Monitor new-grad software engineering roles at OpenAI, Pal
 | --- | --- |
 | ![Natural-language command interface and structured recurring-monitor configuration](docs/screenshots/natural-language-commands.png) | ![Scheduled job-monitor workflows with status, run history, and controls](docs/screenshots/scheduled-workflows.png) |
 
+### Worker crash recovery
+
+[Watch the 35-second worker crash recovery demo](docs/demo/worker-crash-recovery.mp4).
+
+Worker A runs a sample job while worker B waits idle. A real process-termination command kills A, then B automatically claims attempt 2 after the job lease expires and finishes the job. The dashboard later marks A **Unresponsive** and shows **1 of 2 workers active**.
+
+[![Worker crash recovery showing the termination command, completed retry, unresponsive worker A, and one active worker](docs/screenshots/worker-crash-recovery.png)](docs/demo/worker-crash-recovery.mp4)
+
+The recording shows the local website, PostgreSQL, and actual worker processes. It uses a timed sample workload and a shortened 3-second job lease. Part of the wait for the 30-second heartbeat timeout is labeled **4× speed**.
+
+To reproduce the recovery check, install Go and Docker, then run:
+
+```bash
+make demo-recovery
+```
+
+This starts a disposable PostgreSQL container, runs both workers, terminates A, verifies B completes attempt 2, and removes the container afterward. The command prints execution events as JSON.
+
 ## What It Does
 
 - Accepts immediate jobs and recurring workflow definitions.
@@ -91,6 +109,7 @@ This starts the API, a standalone worker, and Postgres. Run `make frontend` in a
 ```bash
 make test                 # Backend tests and frontend build
 make demo                 # Seed and run a deterministic fake job monitor
+make demo-recovery        # Verify recovery after terminating a worker
 make dev-postgres         # API and dashboard with local Postgres
 make website-postgres     # Built dashboard served by API with Postgres
 make dev-distributed      # API, dashboard, Postgres, and standalone worker
