@@ -296,7 +296,7 @@ func (s *PostgresStore) FinishAttempt(claim *Job, status Status, errMessage, log
 		job, err := scanJob(tx.QueryRowContext(ctx, `
 UPDATE jobs
 SET status = $2, error = $3, updated_at = $4,
-    finished_at = CASE WHEN $2 = $5 THEN NULL ELSE $4 END,
+    finished_at = CASE WHEN $2 = $5 THEN NULL::timestamptz ELSE $4::timestamptz END,
     lease_owner = '', lease_until = NULL
 WHERE id = $1 AND status = $6 AND lease_owner = $7 AND attempts = $8
   AND started_at = $9 AND lease_until > clock_timestamp()
